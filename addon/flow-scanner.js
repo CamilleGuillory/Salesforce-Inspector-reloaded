@@ -53,6 +53,7 @@ class FlowScanner {
 
   async getFlowMetadata() {
     try {
+<<<<<<< 3qvppi-codex/intégrer-le-flow-scanner-avec-une-fenêtre-superposée
       const defQuery = `SELECT Id, DeveloperName, MasterLabel, ProcessType, Status, ActiveVersionId FROM FlowDefinition WHERE Id='${this.flowDefId}'`;
       const defRes = await sfConn.rest(
         `/services/data/v${apiVersion}/tooling/query/?q=${encodeURIComponent(defQuery)}`
@@ -71,6 +72,19 @@ class FlowScanner {
         name: def.DeveloperName || def.MasterLabel || 'Unknown Flow',
         type: def.ProcessType || 'Unknown',
         status: def.Status || 'Unknown',
+=======
+      const [flowRes, flowDefRes] = await Promise.all([
+        sfConn.rest(`/services/data/v${apiVersion}/tooling/sobjects/Flow/${this.flowId}`),
+        sfConn.rest(`/services/data/v${apiVersion}/tooling/sobjects/FlowDefinition/${this.flowDefId}`)
+      ]);
+
+      return {
+        id: this.flowId,
+        definitionId: this.flowDefId,
+        name: flowDefRes.DeveloperName || flowDefRes.MasterLabel || 'Unknown Flow',
+        type: flowDefRes.ProcessType || 'Unknown',
+        status: flowDefRes.Status || 'Unknown',
+>>>>>>> feat/FlowScanner
         xmlData: flowRes.Metadata
       };
     } catch (error) {
