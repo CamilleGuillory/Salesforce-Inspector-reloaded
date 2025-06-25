@@ -1,0 +1,11 @@
+--level project --json--level user --json[sfdx-hardis] Defined "false" as git core.quotepath
+[sfdx-hardis] Updated config file config/user/.sfdx-hardis.cguillory.yml with values: 
+{
+  "installedApps": [
+    "git"
+  ]
+}
+[sfdx-hardis] Defined vscode as git merge tool 
+[sfdx-hardis] {"installedApps":["git"]}
+[sfdx-hardis] Defined vscode as git merge tool 
+[sfdx-hardis] {}

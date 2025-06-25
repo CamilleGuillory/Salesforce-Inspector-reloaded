@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Flow Scanner Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-button {
+            background: #0070d2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #005fb2;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Flow Scanner Integration Test</h1>
+    
+    <div class="test-section">
+        <h2>Test Flow Scanner Button</h2>
+        <p>This simulates the flow scanner button that would appear on a Flow Builder page.</p>
+        <button class="test-button" onclick="testFlowScannerButton()">Test Flow Scanner Button</button>
+        <div id="button-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Flow Scanner Window</h2>
+        <p>This opens the flow scanner window directly.</p>
+        <button class="test-button" onclick="testFlowScannerWindow()">Open Flow Scanner</button>
+        <div id="window-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Flow Information Extraction</h2>
+        <p>This tests the flow information extraction functions.</p>
+        <button class="test-button" onclick="testFlowInfoExtraction()">Test Extraction</button>
+        <div id="extraction-result" class="result"></div>
+    </div>
+
+    <script>
+        function testFlowScannerButton() {
+            const result = document.getElementById('button-result');
+            try {
+                // Simulate the flow scanner button creation
+                const button = document.createElement('button');
+                button.id = 'flow-scanner-btn';
+                button.textContent = '🔍 Flow Scanner';
+                button.title = 'Open Flow Scanner for static analysis';
+                button.className = 'flowScannerBtnProd';
+                
+                // Add styles
+                const style = document.createElement('style');
+                style.textContent = `
+                    .flowScannerBtnProd {
+                        background: linear-gradient(135deg, #0070d2 0%, #005fb2 100%);
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 8px 16px;
+                        font-size: 12px;
+                        font-weight: 500;
+                        cursor: pointer;
+                        margin-left: 10px;
+                        transition: all 0.2s ease;
+                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    }
+                `;
+                document.head.appendChild(style);
+                
+                result.innerHTML = `
+                    <strong>✅ Button created successfully!</strong><br>
+                    Button ID: ${button.id}<br>
+                    Button Text: ${button.textContent}<br>
+                    Button Class: ${button.className}<br>
+                    <br>
+                    <strong>Button Preview:</strong><br>
+                    ${button.outerHTML}
+                `;
+            } catch (error) {
+                result.innerHTML = `<strong>❌ Error:</strong> ${error.message}`;
+            }
+        }
+
+        function testFlowScannerWindow() {
+            const result = document.getElementById('window-result');
+            try {
+                // Simulate opening the flow scanner window
+                const flowScannerUrl = chrome.runtime.getURL('flow-scanner.html?flowDefId=test123&flowId=test456');
+                const width = 800;
+                const height = 600;
+                const left = (screen.width - width) / 2;
+                const top = (screen.height - height) / 2;
+                
+                const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`;
+                
+                result.innerHTML = `
+                    <strong>✅ Flow Scanner window configuration:</strong><br>
+                    URL: ${flowScannerUrl}<br>
+                    Width: ${width}<br>
+                    Height: ${height}<br>
+                    Position: (${left}, ${top})<br>
+                    Features: ${windowFeatures}<br>
+                    <br>
+                    <em>Note: In a real environment, this would open a new window.</em>
+                `;
+            } catch (error) {
+                result.innerHTML = `<strong>❌ Error:</strong> ${error.message}`;
+            }
+        }
+
+        function testFlowInfoExtraction() {
+            const result = document.getElementById('extraction-result');
+            try {
+                // Test flow information extraction functions
+                const mockFlowData = {
+                    name: 'Test Flow',
+                    type: 'AutoLaunchedFlow',
+                    status: 'Active',
+                    xmlData: {
+                        description: 'Test flow description',
+                        apiVersion: '58.0',
+                        processType: 'AutoLaunchedFlow'
+                    }
+                };
+                
+                const extractionFunctions = {
+                    'Flow Name': mockFlowData.name,
+                    'Flow Type': mockFlowData.type,
+                    'Flow Status': mockFlowData.status,
+                    'Has Description': mockFlowData.xmlData.description ? 'Yes' : 'No',
+                    'API Version': mockFlowData.xmlData.apiVersion,
+                    'Process Type': mockFlowData.xmlData.processType
+                };
+                
+                let extractionResult = '<strong>✅ Flow Information Extraction Test:</strong><br><br>';
+                for (const [key, value] of Object.entries(extractionFunctions)) {
+                    extractionResult += `<strong>${key}:</strong> ${value}<br>`;
+                }
+                
+                result.innerHTML = extractionResult;
+            } catch (error) {
+                result.innerHTML = `<strong>❌ Error:</strong> ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html> 

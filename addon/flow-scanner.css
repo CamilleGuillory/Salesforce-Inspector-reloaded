@@ -1,0 +1,268 @@
+/* Flow Scanner Styles */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  background-color: #f3f3f3;
+  color: #16325c;
+}
+
+#flow-scanner-app {
+  width: 100%;
+  min-height: 100vh;
+  background-color: #ffffff;
+}
+
+.flow-scanner-header {
+  background: linear-gradient(135deg, #0070d2 0%, #005fb2 100%);
+  color: white;
+  padding: 20px;
+  text-align: center;
+}
+
+.flow-scanner-header h2 {
+  margin: 0 0 5px 0;
+  font-size: 24px;
+  font-weight: 300;
+}
+
+.flow-scanner-header p {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.flow-scanner-content {
+  padding: 20px;
+}
+
+.flow-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 30px;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e1e5e9;
+}
+
+.flow-details h3 {
+  margin: 0 0 15px 0;
+  font-size: 18px;
+  color: #16325c;
+}
+
+.flow-details > div {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #54698d;
+}
+
+.flow-details > div:first-of-type {
+  font-weight: 600;
+  color: #16325c;
+  font-size: 16px;
+}
+
+.scan-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scan-btn, .export-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 120px;
+}
+
+.scan-btn {
+  background-color: #0070d2;
+  color: white;
+}
+
+.scan-btn:hover {
+  background-color: #005fb2;
+}
+
+.scan-btn:disabled {
+  background-color: #c9c9c9;
+  cursor: not-allowed;
+}
+
+.export-btn {
+  background-color: #04844b;
+  color: white;
+}
+
+.export-btn:hover:not(:disabled) {
+  background-color: #036b3d;
+}
+
+.export-btn:disabled {
+  background-color: #c9c9c9;
+  cursor: not-allowed;
+}
+
+.scan-results {
+  background-color: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e1e5e9;
+  overflow: hidden;
+}
+
+.results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e1e5e9;
+}
+
+.results-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #16325c;
+}
+
+.results-summary {
+  font-size: 14px;
+  color: #54698d;
+}
+
+.results-container {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.no-results {
+  padding: 40px 20px;
+  text-align: center;
+  color: #54698d;
+  font-style: italic;
+}
+
+.issue-item {
+  padding: 15px 20px;
+  border-bottom: 1px solid #e1e5e9;
+  transition: background-color 0.2s ease;
+}
+
+.issue-item:hover {
+  background-color: #f8f9fa;
+}
+
+.issue-item:last-child {
+  border-bottom: none;
+}
+
+.issue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.issue-title {
+  font-weight: 600;
+  color: #16325c;
+  font-size: 14px;
+}
+
+.issue-severity {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.issue-severity.error {
+  background-color: #ffebee;
+  color: #c62828;
+}
+
+.issue-severity.warning {
+  background-color: #fff3e0;
+  color: #ef6c00;
+}
+
+.issue-severity.info {
+  background-color: #e3f2fd;
+  color: #1565c0;
+}
+
+.issue-description {
+  font-size: 13px;
+  color: #54698d;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.issue-details {
+  font-size: 12px;
+  color: #8896b3;
+  background-color: #f8f9fa;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border-left: 3px solid #0070d2;
+}
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e1e5e9;
+  border-top: 4px solid #0070d2;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 15px;
+}
+
+.loading-text {
+  color: #54698d;
+  font-size: 14px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .flow-info {
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  .scan-controls {
+    flex-direction: row;
+  }
+  
+  .results-header {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+} 

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Flow Scanner</title>
+  <link rel="stylesheet" href="flow-scanner.css">
+</head>
+<body>
+  <div id="flow-scanner-app">
+    <div class="flow-scanner-header">
+      <h2>Flow Scanner</h2>
+      <p>Static analysis for Salesforce Flows using Lightning Flow Scanner Core</p>
+    </div>
+    
+    <div class="flow-scanner-content">
+      <div class="flow-info">
+        <div class="flow-details">
+          <h3>Current Flow</h3>
+          <div id="flow-name">Loading...</div>
+          <div id="flow-type">Loading...</div>
+          <div id="flow-status">Loading...</div>
+        </div>
+        
+        <div class="scan-controls">
+          <button id="scan-button" class="scan-btn">Scan Flow</button>
+          <button id="export-button" class="export-btn" disabled>Export Results</button>
+        </div>
+      </div>
+      
+      <div class="scan-results">
+        <div class="results-header">
+          <h3>Scan Results</h3>
+          <div class="results-summary">
+            <span id="total-issues">0</span> issues found
+          </div>
+        </div>
+        
+        <div id="results-container" class="results-container">
+          <div class="no-results">
+            Click "Scan Flow" to analyze the current flow
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="loading-overlay" id="loading-overlay" style="display: none;">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Analyzing flow...</div>
+    </div>
+  </div>
+  
+  <!-- Include Flow Scanner Core -->
+  <script src="flow-scanner-core.js"></script>
+  <script src="flow-scanner.js"></script>
+</body>
+</html> 
