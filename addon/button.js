@@ -145,7 +145,7 @@ function initButton(sfHost, inInspector) {
     }
     
     // Open flow scanner in a new window
-    const flowScannerUrl = chrome.runtime.getURL(`flow-scanner.html?flowDefId=${flowDefId}&flowId=${flowId}`);
+    const flowScannerUrl = chrome.runtime.getURL(`flow-scanner.html?host=${sfHost}&flowDefId=${flowDefId}&flowId=${flowId}`);
     const width = 800;
     const height = 600;
     const left = (screen.width - width) / 2;
