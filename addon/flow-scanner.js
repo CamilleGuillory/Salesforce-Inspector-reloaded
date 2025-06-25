@@ -1,6 +1,11 @@
-// Flow Scanner for Salesforce Inspector
+import {sfConn, apiVersion} from "./inspector.js";
+/* global initButton lightningflowscanner */
+
 class FlowScanner {
-  constructor() {
+  constructor(sfHost, flowDefId, flowId) {
+    this.sfHost = sfHost;
+    this.flowDefId = flowDefId;
+    this.flowId = flowId;
     this.currentFlow = null;
     this.scanResults = [];
     this.flowScannerCore = null;
@@ -9,12 +14,11 @@ class FlowScanner {
 
   init() {
     this.bindEvents();
-    this.loadFlowInfo();
     this.initFlowScannerCore();
+    this.loadFlowInfo();
   }
 
   initFlowScannerCore() {
-    // Check if Flow Scanner Core is available
     if (typeof lightningflowscanner !== 'undefined') {
       this.flowScannerCore = lightningflowscanner;
       console.log('Flow Scanner Core loaded successfully');
@@ -27,7 +31,6 @@ class FlowScanner {
     document.getElementById('scan-button').addEventListener('click', () => {
       this.scanFlow();
     });
-
     document.getElementById('export-button').addEventListener('click', () => {
       this.exportResults();
     });
@@ -35,18 +38,11 @@ class FlowScanner {
 
   async loadFlowInfo() {
     try {
-      // Get flow information from URL parameters
-      const urlParams = new URLSearchParams(window.location.search);
-      const flowDefId = urlParams.get('flowDefId');
-      const flowId = urlParams.get('flowId');
-
-      if (!flowDefId || !flowId) {
+      if (!this.flowDefId || !this.flowId) {
         this.showError('No flow information found in URL');
         return;
       }
-
-      // Get flow metadata from Salesforce
-      const flowInfo = await this.getFlowMetadata(flowDefId, flowId);
+      const flowInfo = await this.getFlowMetadata();
       this.currentFlow = flowInfo;
       this.displayFlowInfo(flowInfo);
     } catch (error) {
@@ -55,143 +51,76 @@ class FlowScanner {
     }
   }
 
-  async getFlowMetadata(flowDefId, flowId) {
+  async getFlowMetadata() {
     try {
-      // Try to get flow metadata from the parent window (Salesforce page)
-      const flowName = this.extractFlowNameFromPage();
-      const flowType = this.extractFlowTypeFromPage();
-      const flowStatus = this.extractFlowStatusFromPage();
+      const defQuery = `SELECT Id, DeveloperName, MasterLabel, ProcessType, Status, ActiveVersionId FROM FlowDefinition WHERE Id='${this.flowDefId}'`;
+      const defRes = await sfConn.rest(
+        `/services/data/v${apiVersion}/tooling/query/?q=${encodeURIComponent(defQuery)}`
+      );
+      const def = defRes.records && defRes.records[0];
+      if (!def) throw new Error('No definition');
 
-      // Get flow XML data
-      const xmlData = await this.getFlowXML(flowId);
+      const versionId = this.flowId || def.ActiveVersionId;
+      const flowRes = await sfConn.rest(
+        `/services/data/v${apiVersion}/tooling/sobjects/Flow/${versionId}`
+      );
 
       return {
-        id: flowId,
-        definitionId: flowDefId,
-        name: flowName || 'Unknown Flow',
-        type: flowType || 'Unknown',
-        status: flowStatus || 'Unknown',
-        xmlData: xmlData
+        id: versionId,
+        definitionId: this.flowDefId,
+        name: def.DeveloperName || def.MasterLabel || 'Unknown Flow',
+        type: def.ProcessType || 'Unknown',
+        status: def.Status || 'Unknown',
+        xmlData: flowRes.Metadata
       };
     } catch (error) {
       console.error('Error getting flow metadata:', error);
-      // Fallback to basic info
       return {
-        id: flowId,
-        definitionId: flowDefId,
+        id: this.flowId,
+        definitionId: this.flowDefId,
         name: this.extractFlowNameFromPage() || 'Unknown Flow',
         type: this.extractFlowTypeFromPage() || 'Unknown',
         status: this.extractFlowStatusFromPage() || 'Unknown',
-        xmlData: null
+        xmlData: this.extractFlowXMLFromPage()
       };
     }
   }
 
   extractFlowNameFromPage() {
-    // Try to extract flow name from various page elements
     const titleElement = document.querySelector('title');
     if (titleElement && titleElement.textContent.includes('Flow Builder')) {
       return titleElement.textContent.replace(' - Flow Builder', '').trim();
     }
-
     const headerElement = document.querySelector('h1, .slds-page-header__title');
     if (headerElement) {
       return headerElement.textContent.trim();
     }
-
     return 'Unknown Flow';
   }
 
   extractFlowTypeFromPage() {
-    // Try to extract flow type from page content
     const pageContent = document.body.textContent;
     if (pageContent.includes('Auto-launched Flow')) return 'AutoLaunchedFlow';
     if (pageContent.includes('Screen Flow')) return 'Flow';
     if (pageContent.includes('Process Builder')) return 'Workflow';
     if (pageContent.includes('Invocable Process')) return 'InvocableProcess';
-    
     return 'Flow';
   }
 
   extractFlowStatusFromPage() {
-    // Try to extract flow status from page content
     const pageContent = document.body.textContent;
     if (pageContent.includes('Active')) return 'Active';
     if (pageContent.includes('Draft')) return 'Draft';
     if (pageContent.includes('Inactive')) return 'Inactive';
-    
     return 'Unknown';
   }
 
-  async getFlowXML(flowId) {
-    try {
-      // Try to get sfHost from the opener or parent window URL
-      let sfHost = null;
-      try {
-        const openerUrl = (window.opener && window.opener.location && window.opener.location.hostname) ? window.opener.location.hostname : null;
-        const parentUrl = (window.parent && window.parent.location && window.parent.location.hostname) ? window.parent.location.hostname : null;
-        sfHost = openerUrl || parentUrl;
-      } catch (e) {}
-      // If not found, try to parse from URL params
-      if (!sfHost) {
-        const urlParams = new URLSearchParams(window.location.search);
-        sfHost = urlParams.get('sfHost');
-      }
-      if (!sfHost) {
-        // Try to guess from the current tab's referrer
-        sfHost = document.referrer ? (new URL(document.referrer)).hostname : null;
-      }
-      if (!sfHost) {
-        throw new Error('Unable to determine Salesforce host');
-      }
-      // Use background script to fetch metadata
-      return await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({
-          message: 'fetchFlowMetadata',
-          sfHost,
-          flowId
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
-          }
-          if (response && response.data && response.data.Metadata) {
-            resolve(response.data.Metadata);
-          } else {
-            reject(new Error(response && response.error ? response.error : 'No metadata returned'));
-          }
-        });
-      });
-    } catch (error) {
-      console.error('Error fetching flow XML via background:', error);
-      // Fallback: return basic flow data
-      return this.extractFlowXMLFromPage();
-    }
-  }
-
-  getSessionId() {
-    // Get session ID from Salesforce page
-    const sessionId = this.getCookie('sid') || this.getCookie('sid_oauth');
-    if (!sessionId) {
-      throw new Error('No session ID found');
-    }
-    return sessionId;
-  }
-
-  getCookie(name) {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(';').shift();
-    return null;
-  }
-
   extractFlowXMLFromPage() {
-    // Fallback method to extract flow data from page
     return {
       processType: this.extractFlowTypeFromPage(),
       status: this.extractFlowStatusFromPage(),
       label: this.extractFlowNameFromPage(),
-      apiVersion: '58.0'
+      apiVersion: apiVersion
     };
   }
 
@@ -206,20 +135,14 @@ class FlowScanner {
       this.showError('No flow loaded');
       return;
     }
-
     this.showLoading(true);
-    
     try {
       let results = [];
-      
       if (this.flowScannerCore) {
-        // Use Flow Scanner Core for comprehensive analysis
         results = await this.scanWithCore();
       } else {
-        // Fallback to basic analysis
         results = await this.analyzeFlow(this.currentFlow);
       }
-      
       this.scanResults = results;
       this.displayResults(results);
       this.updateExportButton();
@@ -233,24 +156,18 @@ class FlowScanner {
 
   async scanWithCore() {
     try {
-      // Create a mock flow object that the core can analyze
       const mockFlow = {
         name: this.currentFlow.name,
         type: this.currentFlow.type,
         xmldata: this.currentFlow.xmlData,
         elements: this.extractFlowElements()
       };
-
-      // Use the Flow Scanner Core to analyze the flow
       const parsedFlows = [{
         uri: this.currentFlow.id,
         flow: mockFlow,
         errorMessage: null
       }];
-
       const scanResults = this.flowScannerCore.scan(parsedFlows);
-      
-      // Convert core results to our format
       const results = [];
       for (const scanResult of scanResults) {
         for (const ruleResult of scanResult.ruleResults) {
@@ -266,68 +183,57 @@ class FlowScanner {
           }
         }
       }
-
       return results;
     } catch (error) {
       console.error('Error with Flow Scanner Core:', error);
-      // Fallback to basic analysis
       return await this.analyzeFlow(this.currentFlow);
     }
   }
 
   extractFlowElements() {
-    // Extract flow elements from the current page context
-    // This is a simplified approach - in a real implementation,
-    // you'd want to parse the actual flow XML
     return [];
   }
 
   async analyzeFlow(flow) {
     const results = [];
-    
-    // Basic flow analysis rules
     const rules = [
       {
         name: 'Flow Description',
         description: 'Flow should have a description for better documentation',
         severity: 'warning',
-        check: (flow) => !flow.xmlData?.description
+        check: (f) => !f.xmlData?.description
       },
       {
         name: 'API Version',
         description: 'Flow should use a recent API version',
         severity: 'info',
-        check: (flow) => {
-          const apiVersion = flow.xmlData?.apiVersion;
-          if (!apiVersion) return true;
-          const version = parseFloat(apiVersion);
-          return version < 58.0;
+        check: (f) => {
+          const ver = parseFloat(f.xmlData?.apiVersion || apiVersion);
+          return ver < parseFloat(apiVersion);
         }
       },
       {
         name: 'Flow Status',
         description: 'Active flows should be thoroughly tested',
         severity: 'info',
-        check: (flow) => flow.status === 'Active'
+        check: (f) => f.status === 'Active'
       },
       {
         name: 'Flow Type Check',
         description: 'Consider using Flow instead of Process Builder for new automation',
         severity: 'warning',
-        check: (flow) => flow.type === 'Workflow'
+        check: (f) => f.type === 'Workflow'
       },
       {
         name: 'Flow Name Convention',
         description: 'Flow names should follow naming conventions',
         severity: 'info',
-        check: (flow) => {
-          const name = flow.name || '';
+        check: (f) => {
+          const name = f.name || '';
           return !name.includes('_') && !name.includes(' ');
         }
       }
     ];
-
-    // Run each rule
     for (const rule of rules) {
       if (rule.check(flow)) {
         results.push({
@@ -338,21 +244,17 @@ class FlowScanner {
         });
       }
     }
-
     return results;
   }
 
   displayResults(results) {
     const container = document.getElementById('results-container');
     const totalIssues = document.getElementById('total-issues');
-    
     totalIssues.textContent = results.length;
-    
     if (results.length === 0) {
       container.innerHTML = '<div class="no-results">No issues found! Your flow looks good.</div>';
       return;
     }
-
     const resultsHTML = results.map(result => `
       <div class="issue-item">
         <div class="issue-header">
@@ -363,7 +265,6 @@ class FlowScanner {
         <div class="issue-details">${result.details}</div>
       </div>
     `).join('');
-
     container.innerHTML = resultsHTML;
   }
 
@@ -376,7 +277,6 @@ class FlowScanner {
     if (this.scanResults.length === 0) {
       return;
     }
-
     const exportData = {
       flow: this.currentFlow,
       scanResults: this.scanResults,
@@ -384,11 +284,9 @@ class FlowScanner {
       totalIssues: this.scanResults.length,
       scannerVersion: this.flowScannerCore ? 'Flow Scanner Core' : 'Basic Scanner'
     };
-
     const blob = new Blob([JSON.stringify(exportData, null, 2)], {
       type: 'application/json'
     });
-
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -410,15 +308,14 @@ class FlowScanner {
   }
 }
 
-// Initialize the flow scanner when the page loads
-document.addEventListener('DOMContentLoaded', () => {
-  new FlowScanner();
-});
+async function init() {
+  const params = new URLSearchParams(window.location.search);
+  const sfHost = params.get('host');
+  const flowDefId = params.get('flowDefId');
+  const flowId = params.get('flowId');
+  initButton(sfHost, true);
+  await sfConn.getSession(sfHost);
+  new FlowScanner(sfHost, flowDefId, flowId);
+}
 
-// Listen for messages from the parent window
-window.addEventListener('message', (event) => {
-  if (event.data.type === 'flow-scanner-init') {
-    // Handle initialization from parent window
-    console.log('Flow Scanner initialized from parent window');
-  }
-}); 
+document.addEventListener('DOMContentLoaded', init);

@@ -1941,7 +1941,7 @@ class AllDataSelection extends React.PureComponent {
               onClick: (e) => {
                 e.preventDefault();
                 const url = chrome.runtime.getURL(
-                  `flow-scanner.html?flowDefId=${flowDefinitionId}&flowId=${selectedValue.recordId}`
+                  `flow-scanner.html?host=${sfHost}&flowDefId=${flowDefinitionId}&flowId=${selectedValue.recordId}`
                 );
                 const width = 800;
                 const height = 600;
