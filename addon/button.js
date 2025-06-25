@@ -134,57 +134,28 @@ function initButton(sfHost, inInspector) {
   }
 
   function openFlowScanner(currentUrl) {
-    const url = new URL(currentUrl);
-    const urlParams = new URLSearchParams(url.search || "");
-    const flowDefId = urlParams.get("flowDefId");
-    const flowId = urlParams.get("flowId");
+    // Extract flow information from URL
+    const urlParams = new URLSearchParams(currentUrl.split('?')[1] || '');
+    const flowDefId = urlParams.get('flowDefId');
+    const flowId = urlParams.get('flowId');
+    
     if (!flowDefId || !flowId) {
-      alert("Unable to detect flow information. Please make sure you are on a flow builder page.");
+      alert('Unable to detect flow information. Please make sure you are on a flow builder page.');
       return;
     }
-    openFlowScannerOverlay(url.hostname, flowDefId, flowId);
-  }
-
-  function openFlowScannerOverlay(sfHost, flowDefId, flowId) {
-    const overlayId = "flow-scanner-overlay";
-    let overlay = document.getElementById(overlayId);
-    if (!overlay) {
-      overlay = document.createElement("div");
-      overlay.id = overlayId;
-      Object.assign(overlay.style, {
-        position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        background: "rgba(0,0,0,0.6)",
-        zIndex: 10000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center"
-      });
-      const iframeEl = document.createElement("iframe");
-      Object.assign(iframeEl.style, {
-        width: "80%",
-        height: "90%",
-        border: "none",
-        borderRadius: "8px",
-        background: "#fff"
-      });
-      overlay.appendChild(iframeEl);
-      overlay.addEventListener("click", e => {
-        if (e.target === overlay) overlay.remove();
-      });
-      addEventListener("keydown", function esc(e) {
-        if (e.key === "Escape") {
-          overlay.remove();
-          removeEventListener("keydown", esc);
-        }
-      });
-      document.body.appendChild(overlay);
-    }
-    const iframeEl = overlay.querySelector("iframe");
-    iframeEl.src = chrome.runtime.getURL(`flow-scanner.html?host=${sfHost}&flowDefId=${flowDefId}&flowId=${flowId}`);
+    
+    // Open flow scanner in a new window
+    const flowScannerUrl = chrome.runtime.getURL(`flow-scanner.html?flowDefId=${flowDefId}&flowId=${flowId}`);
+    const width = 800;
+    const height = 600;
+    const left = (screen.width - width) / 2;
+    const top = (screen.height - height) / 2;
+    
+    window.open(
+      flowScannerUrl,
+      'flow-scanner',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`
+    );
   }
 
   // Calulates default position, left to right for horizontal, and adds boundaries to keep it on screen
@@ -381,9 +352,6 @@ function initButton(sfHost, inInspector) {
       }
       if (e.data.lightningNavigate) {
         document.dispatchEvent(new CustomEvent("lightningNavigate", {detail: e.data.lightningNavigate}));
-      }
-      if (e.data.openFlowScanner) {
-        openFlowScannerOverlay(sfHost, e.data.flowDefId, e.data.flowId);
       }
     });
     rootEl.appendChild(popupEl);
