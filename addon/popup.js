@@ -1935,27 +1935,18 @@ class AllDataSelection extends React.PureComponent {
           ? h("a", {href: this.redirectToFlowVersions(), target: linkTarget, className: "button page-button slds-button slds-button_neutral slds-m-top_xx-small slds-m-bottom_xx-small"}, "Flow Versions") : null,
         // Flow Scanner button
         (flowDefinitionId && selectedValue.recordId)
-          ? h("a", {
-              href: "#",
-              className: "button page-button slds-button slds-button_neutral slds-m-top_xx-small slds-m-bottom_xx-small",
-              onClick: (e) => {
-                e.preventDefault();
-                const url = chrome.runtime.getURL(
-                  `flow-scanner.html?flowDefId=${flowDefinitionId}&flowId=${selectedValue.recordId}`
-                );
-                const width = 800;
-                const height = 600;
-                const left = (window.screen.width - width) / 2;
-                const top = (window.screen.height - height) / 2;
-                window.open(
-                  url,
-                  'flow-scanner',
-                  `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`
-                );
-              }
-            },
-            "Flow Scanner"
-          ) : null,
+          ? h(
+              "a",
+              {
+                href: chrome.runtime.getURL(
+                  `flow-scanner.html?host=${sfHost}&flowDefId=${flowDefinitionId}&flowId=${selectedValue.recordId}`
+                ),
+                target: linkTarget,
+                className: "button page-button slds-button slds-button_neutral slds-m-top_xx-small slds-m-bottom_xx-small"
+              },
+              "Flow Scanner"
+            )
+          : null,
         buttons.map((button, index) => h("div", {key: button + "Div"}, h("a",
           {
             key: button,
