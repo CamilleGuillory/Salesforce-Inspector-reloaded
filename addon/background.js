@@ -54,28 +54,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
       chrome.tabs.reload(tabs[0].id);
     });
-  } else if (request.message == "fetchFlowMetadata") {
-    // Proxy Tooling API call to Salesforce
-    const { sfHost, flowId } = request;
-    chrome.cookies.get({ url: "https://" + sfHost, name: "sid", storeId: sender.tab?.cookieStoreId }, sessionCookie => {
-      if (!sessionCookie) {
-        sendResponse({ error: "No session cookie found" });
-        return;
-      }
-      const sessionId = sessionCookie.value;
-      fetch(`https://${sfHost}/services/data/v58.0/tooling/sobjects/Flow/${flowId}`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${sessionId}`,
-          "Content-Type": "application/json"
-        },
-        credentials: "include"
-      })
-        .then(resp => resp.json())
-        .then(data => sendResponse({ data }))
-        .catch(err => sendResponse({ error: err.message }));
-    });
-    return true;
   }
   return false;
 });
