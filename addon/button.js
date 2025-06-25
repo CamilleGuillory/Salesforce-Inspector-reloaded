@@ -138,24 +138,20 @@ function initButton(sfHost, inInspector) {
     const urlParams = new URLSearchParams(currentUrl.split('?')[1] || '');
     const flowDefId = urlParams.get('flowDefId');
     const flowId = urlParams.get('flowId');
-    
+
     if (!flowDefId || !flowId) {
       alert('Unable to detect flow information. Please make sure you are on a flow builder page.');
       return;
     }
-    
-    // Open flow scanner in a new window
-    const flowScannerUrl = chrome.runtime.getURL(`flow-scanner.html?flowDefId=${flowDefId}&flowId=${flowId}`);
-    const width = 800;
-    const height = 600;
-    const left = (screen.width - width) / 2;
-    const top = (screen.height - height) / 2;
-    
-    window.open(
-      flowScannerUrl,
-      'flow-scanner',
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`
-    );
+
+    const args = new URLSearchParams();
+    args.set('host', sfHost);
+    args.set('flowDefId', flowDefId);
+    args.set('flowId', flowId);
+    const flowScannerUrl = chrome.runtime.getURL(`flow-scanner.html?${args}`);
+
+    const target = localStorage.getItem('openLinksInNewTab') === 'true' ? '_blank' : '_top';
+    window.open(flowScannerUrl, target);
   }
 
   // Calulates default position, left to right for horizontal, and adds boundaries to keep it on screen
