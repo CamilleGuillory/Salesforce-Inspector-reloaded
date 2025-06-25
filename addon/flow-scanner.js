@@ -1,12 +1,6 @@
 // Flow Scanner for Salesforce Inspector
-import {sfConn, apiVersion} from "./inspector.js";
-/* global initButton */
-
 class FlowScanner {
-  constructor(sfHost, flowDefId, flowId) {
-    this.sfHost = sfHost;
-    this.flowDefId = flowDefId;
-    this.flowId = flowId;
+  constructor() {
     this.currentFlow = null;
     this.scanResults = [];
     this.flowScannerCore = null;
@@ -41,13 +35,18 @@ class FlowScanner {
 
   async loadFlowInfo() {
     try {
-      if (!this.flowDefId || !this.flowId) {
+      // Get flow information from URL parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const flowDefId = urlParams.get('flowDefId');
+      const flowId = urlParams.get('flowId');
+
+      if (!flowDefId || !flowId) {
         this.showError('No flow information found in URL');
         return;
       }
 
       // Get flow metadata from Salesforce
-      const flowInfo = await this.getFlowMetadata(this.flowDefId, this.flowId);
+      const flowInfo = await this.getFlowMetadata(flowDefId, flowId);
       this.currentFlow = flowInfo;
       this.displayFlowInfo(flowInfo);
     } catch (error) {
@@ -58,22 +57,25 @@ class FlowScanner {
 
   async getFlowMetadata(flowDefId, flowId) {
     try {
-      const res = await sfConn.rest(
-        `/services/data/v${apiVersion}/tooling/sobjects/Flow/${flowId}`,
-        {method: 'GET'}
-      );
+      // Try to get flow metadata from the parent window (Salesforce page)
+      const flowName = this.extractFlowNameFromPage();
+      const flowType = this.extractFlowTypeFromPage();
+      const flowStatus = this.extractFlowStatusFromPage();
+
+      // Get flow XML data
+      const xmlData = await this.getFlowXML(flowId);
 
       return {
         id: flowId,
         definitionId: flowDefId,
-        name:
-          res.FullName || res.MasterLabel || this.extractFlowNameFromPage(),
-        type: res.ProcessType || this.extractFlowTypeFromPage(),
-        status: res.Status || this.extractFlowStatusFromPage(),
-        xmlData: res.Metadata
+        name: flowName || 'Unknown Flow',
+        type: flowType || 'Unknown',
+        status: flowStatus || 'Unknown',
+        xmlData: xmlData
       };
     } catch (error) {
       console.error('Error getting flow metadata:', error);
+      // Fallback to basic info
       return {
         id: flowId,
         definitionId: flowDefId,
@@ -123,17 +125,65 @@ class FlowScanner {
 
   async getFlowXML(flowId) {
     try {
-      const res = await sfConn.rest(
-        `/services/data/v${apiVersion}/tooling/sobjects/Flow/${flowId}`,
-        {method: 'GET'}
-      );
-      return res.Metadata;
+      // Try to get sfHost from the opener or parent window URL
+      let sfHost = null;
+      try {
+        const openerUrl = (window.opener && window.opener.location && window.opener.location.hostname) ? window.opener.location.hostname : null;
+        const parentUrl = (window.parent && window.parent.location && window.parent.location.hostname) ? window.parent.location.hostname : null;
+        sfHost = openerUrl || parentUrl;
+      } catch (e) {}
+      // If not found, try to parse from URL params
+      if (!sfHost) {
+        const urlParams = new URLSearchParams(window.location.search);
+        sfHost = urlParams.get('sfHost');
+      }
+      if (!sfHost) {
+        // Try to guess from the current tab's referrer
+        sfHost = document.referrer ? (new URL(document.referrer)).hostname : null;
+      }
+      if (!sfHost) {
+        throw new Error('Unable to determine Salesforce host');
+      }
+      // Use background script to fetch metadata
+      return await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          message: 'fetchFlowMetadata',
+          sfHost,
+          flowId
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          if (response && response.data && response.data.Metadata) {
+            resolve(response.data.Metadata);
+          } else {
+            reject(new Error(response && response.error ? response.error : 'No metadata returned'));
+          }
+        });
+      });
     } catch (error) {
-      console.error('Error fetching flow XML:', error);
+      console.error('Error fetching flow XML via background:', error);
+      // Fallback: return basic flow data
       return this.extractFlowXMLFromPage();
     }
   }
 
+  getSessionId() {
+    // Get session ID from Salesforce page
+    const sessionId = this.getCookie('sid') || this.getCookie('sid_oauth');
+    if (!sessionId) {
+      throw new Error('No session ID found');
+    }
+    return sessionId;
+  }
+
+  getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return null;
+  }
 
   extractFlowXMLFromPage() {
     // Fallback method to extract flow data from page
@@ -361,14 +411,8 @@ class FlowScanner {
 }
 
 // Initialize the flow scanner when the page loads
-document.addEventListener('DOMContentLoaded', async () => {
-  const args = new URLSearchParams(window.location.search);
-  const sfHost = args.get('host');
-  const flowDefId = args.get('flowDefId');
-  const flowId = args.get('flowId');
-  initButton(sfHost, true);
-  await sfConn.getSession(sfHost);
-  new FlowScanner(sfHost, flowDefId, flowId);
+document.addEventListener('DOMContentLoaded', () => {
+  new FlowScanner();
 });
 
 // Listen for messages from the parent window
