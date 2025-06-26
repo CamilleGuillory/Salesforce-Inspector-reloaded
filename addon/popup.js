@@ -1847,6 +1847,7 @@ class AllDataSelection extends React.PureComponent {
       }
     }
   }
+
   render() {
     let {sfHost, showDetailsSupported, contextRecordId, selectedValue, linkTarget, recordIdDetails, isFieldsPresent, eventMonitorHref} = this.props;
     let {flowDefinitionId} = this.state;
@@ -1939,9 +1940,8 @@ class AllDataSelection extends React.PureComponent {
               href: `flow-scanner.html?host=${sfHost}&flowDefId=${flowDefinitionId}&flowId=${selectedValue.recordId}`,
               target: linkTarget,
               className: "button page-button slds-button slds-button_neutral slds-m-top_xx-small slds-m-bottom_xx-small"
-            },
-            "Flow Scanner"
-          ) : null,
+            }, "Flow Scanner")
+          : null,
         buttons.map((button, index) => h("div", {key: button + "Div"}, h("a",
           {
             key: button,
@@ -2343,6 +2343,16 @@ class Autocomplete extends React.PureComponent {
 
 function getRecordId(href) {
   let url = new URL(href);
+  
+  // Special handling for Flow Builder URLs
+  // Flow Builder URLs have the Flow ID in the flowId query parameter
+  if (url.pathname.includes('/builder_platform_interaction/flowBuilder.app')) {
+    const flowId = url.searchParams.get('flowId');
+    if (flowId && flowId.startsWith('301')) {
+      return flowId; // Return the Flow ID (301...)
+    }
+  }
+  
   // Find record ID from URL
   // Salesforce and Console (+ Hyperforce China Lightning & Classic)
   if (url.hostname.endsWith(".salesforce.com") || url.hostname.endsWith(".salesforce.mil") || url.hostname.endsWith(".sfcrmapps.cn") || url.hostname.endsWith(".sfcrmproducts.cn")) {
