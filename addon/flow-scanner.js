@@ -533,21 +533,23 @@ class FlowScanner {
           const allRules = this.flowScannerCore.getRules().map(r => r.name);
           const disabled = allRules.filter(name => !selected.includes(name));
           if (disabled.length) {
-            ruleConfig = {rules: {}};
+            ruleConfig = { rules: {} };
             disabled.forEach(name => {
-              ruleConfig.rules[name] = {disabled: "true"};
+              ruleConfig.rules[name] = { disabled: true };
             });
           }
         }
+
         const namingRegex = localStorage.getItem("flowScannerNamingRegex");
         if (namingRegex) {
-          if (!ruleConfig) ruleConfig = {rules: {}};
+          if (!ruleConfig) ruleConfig = { rules: {} };
           if (!ruleConfig.rules) ruleConfig.rules = {};
-          ruleConfig.rules.FlowName = {expression: namingRegex};
+          ruleConfig.rules.FlowName = { expression: namingRegex };
         }
       } catch (e) {
         console.error("Error preparing rule configuration", e);
       }
+
       const scanResults = this.flowScannerCore.scan([parsedFlow], ruleConfig);
       console.log("Flow Scanner Core returned results:", scanResults);
       console.log("Scan results type:", typeof scanResults);
