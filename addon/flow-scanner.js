@@ -539,6 +539,12 @@ class FlowScanner {
             });
           }
         }
+        const namingRegex = localStorage.getItem("flowScannerNamingRegex");
+        if (namingRegex) {
+          if (!ruleConfig) ruleConfig = {rules: {}};
+          if (!ruleConfig.rules) ruleConfig.rules = {};
+          ruleConfig.rules.FlowName = {expression: namingRegex};
+        }
       } catch (e) {
         console.error("Error preparing rule configuration", e);
       }

@@ -230,7 +230,9 @@ class OptionsTabSelector extends React.Component {
           {option: MultiCheckboxButtonGroup,
             props: {title: "Enabled Rules",
               key: "flowScannerRules",
-              checkboxes: ruleCheckboxes}}
+              checkboxes: ruleCheckboxes}},
+          {option: Option,
+            props: {type: "text", title: "Flow Naming Convention Regex", key: "flowScannerNamingRegex", default: "[A-Za-z0-9]+_[A-Za-z0-9]+", tooltip: "Regular expression applied by the Flow Naming Convention rule"}}
         ]
       }
     ];
