@@ -77,7 +77,7 @@ class OptionsTabSelector extends React.Component {
     const ruleCheckboxes = (window.lightningflowscanner?.getRules() || []).map((rule) => ({
       label: rule.label || rule.name,
       name: rule.name,
-      checked: true
+      checked: true  // All rules enabled by default
     }));
 
     this.tabs = [
@@ -227,12 +227,7 @@ class OptionsTabSelector extends React.Component {
         tabTitle: "Tab7",
         title: "Flow Scanner",
         content: [
-          {option: MultiCheckboxButtonGroup,
-            props: {title: "Enabled Rules",
-              key: "flowScannerRules",
-              checkboxes: ruleCheckboxes}},
-          {option: Option,
-            props: {type: "text", title: "Flow Naming Convention Regex", key: "flowScannerNamingRegex", default: "[A-Za-z0-9]+_[A-Za-z0-9]+", tooltip: "Regular expression applied by the Flow Naming Convention rule"}}
+          {option: FlowScannerRulesOption, props: {title: "Enabled Rules", key: "flowScannerRules", checkboxes: ruleCheckboxes}}
         ]
       }
     ];
@@ -854,6 +849,166 @@ class enableLogsOption extends React.Component {
         h("div", {className: "slds-col slds-size_3-of-12 slds-form-element"},
           h("input", {type: "number", id: "debugLogTimeMinutes", className: "slds-input slds-text-align_right slds-m-right_small", value: nullToEmptyString(this.state.debugLogTimeMinutes), onChange: this.onChangeDebugLogTime})
         ),
+      )
+    );
+  }
+}
+
+class FlowScannerRulesOption extends React.Component {
+
+  constructor(props) {
+    super(props);
+    this.handleRuleToggle = this.handleRuleToggle.bind(this);
+    this.handleNamingRegexChange = this.handleNamingRegexChange.bind(this);
+    this.handleCheckAll = this.handleCheckAll.bind(this);
+    this.handleUncheckAll = this.handleUncheckAll.bind(this);
+
+    this.title = props.title;
+    this.key = props.storageKey;
+
+    // Load rules from localStorage or default to props.checkboxes
+    const storedRules = localStorage.getItem(this.key) ? JSON.parse(localStorage.getItem(this.key)) : [];
+
+    // Merge rules only if the size is different
+    const mergedRules = storedRules.length === props.checkboxes.length
+      ? storedRules
+      : this.mergeRules(storedRules, props.checkboxes);
+
+    this.state = {
+      rules: mergedRules
+    };
+
+    // Save to localStorage to ensure the state is persisted
+    localStorage.setItem(this.key, JSON.stringify(this.state.rules));
+  }
+
+  mergeRules(storedRules, defaultRules) {
+    const merged = [];
+    for (const defaultRule of defaultRules) {
+      const storedRule = storedRules.find(r => r.name === defaultRule.name);
+      merged.push({
+        name: defaultRule.name,
+        label: defaultRule.label,
+        checked: storedRule ? storedRule.checked : defaultRule.checked,
+        description: this.getRuleDescription(defaultRule.name)
+      });
+    }
+    return merged;
+  }
+
+  getRuleDescription(ruleName) {
+    const descriptions = {
+      "APIVersion": "Checks if the flow uses an outdated API version.",
+      "AutoLayout": "Recommends using Auto-Layout mode.",
+      "CopyAPIName": "Detects copied elements with default API names.",
+      "CyclomaticComplexity": "Warns when flow complexity is too high.",
+      "DMLStatementInLoop": "Identifies DML operations inside loops.",
+      "DuplicateDMLOperation": "Detects potential duplicate DML operations.",
+      "FlowDescription": "Ensures flows have descriptions.",
+      "FlowName": "Validates flow naming conventions.",
+      "GetRecordAllFields": "Warns against using 'Get All Fields'.",
+      "HardcodedId": "Detects hardcoded Salesforce IDs.",
+      "HardcodedUrl": "Finds hardcoded URLs.",
+      "InactiveFlow": "Identifies inactive flows.",
+      "MissingFaultPath": "Checks for missing error handling paths.",
+      "MissingNullHandler": "Ensures Get Records have null handling.",
+      "ProcessBuilder": "Recommends migrating from Process Builder.",
+      "RecursiveAfterUpdate": "Warns about potential recursion.",
+      "SameRecordFieldUpdates": "Suggests before-save flows for updates.",
+      "SOQLQueryInLoop": "Identifies SOQL queries inside loops.",
+      "TriggerOrder": "Recommends setting trigger order.",
+      "UnconnectedElement": "Finds unused flow elements.",
+      "UnsafeRunningContext": "Warns about system mode flows.",
+      "UnusedVariable": "Identifies unused variables."
+    };
+    return descriptions[ruleName] || "Checks for potential issues and best practices.";
+  }
+
+  handleRuleToggle(ruleName) {
+    const updatedRules = this.state.rules.map(rule => {
+      if (rule.name === ruleName) {
+        return { ...rule, checked: !rule.checked };
+      }
+      return rule;
+    });
+
+    this.setState({ rules: updatedRules });
+    localStorage.setItem(this.key, JSON.stringify(updatedRules));
+  }
+
+  handleNamingRegexChange(event) {
+    const regex = event.target.value;
+    localStorage.setItem("flowScannerNamingRegex", regex);
+    this.forceUpdate(); // To re-render input value
+  }
+
+  handleCheckAll() {
+    const updatedRules = this.state.rules.map(rule => ({ ...rule, checked: true }));
+    this.setState({ rules: updatedRules });
+    localStorage.setItem(this.key, JSON.stringify(updatedRules));
+  }
+
+  handleUncheckAll() {
+    const updatedRules = this.state.rules.map(rule => ({ ...rule, checked: false }));
+    this.setState({ rules: updatedRules });
+    localStorage.setItem(this.key, JSON.stringify(updatedRules));
+  }
+
+  render() {
+    const { title } = this.props;
+    const { rules } = this.state;
+    const namingRegex = localStorage.getItem("flowScannerNamingRegex") || "[A-Za-z0-9]+_[A-Za-z0-9]+";
+
+    return h("div", {className: "option-group"},
+      h("h3", {}, title),
+      h("div", {className: "rules-actions"},
+        h("button", {
+          className: "button button-brand button-small rules-action-btn",
+          type: "button",
+          onClick: this.handleCheckAll
+        }, "Check All"),
+        h("button", {
+          className: "button button-neutral button-small rules-action-btn",
+          type: "button",
+          onClick: this.handleUncheckAll
+        }, "Uncheck All")
+      ),
+      h("div", {className: "rules-container"},
+        rules.map((rule) => 
+          h("div", {key: rule.name, className: "rule-row-horizontal"},
+            // Toggle
+            h("div", {className: "rule-toggle-container"},
+              h("label", {className: "slds-checkbox_toggle slds-grid"},
+                h("input", {
+                  type: "checkbox",
+                  "aria-describedby": "toggle-desc",
+                  checked: rule.checked,
+                  onChange: () => this.handleRuleToggle(rule.name)
+                }),
+                h("span", {className: "slds-checkbox_faux_container", "aria-live": "assertive"},
+                  h("span", {className: "slds-checkbox_faux"}),
+                  h("span", {className: "slds-checkbox_on"}, "Enabled"),
+                  h("span", {className: "slds-checkbox_off"}, "Disabled")
+                )
+              )
+            ),
+            // Name
+            h("div", {className: "rule-name-horizontal"}, rule.label),
+            // Config (inline)
+            rule.name === "FlowName" && h("div", {className: "rule-config-inline"},
+              h("input", {
+                type: "text",
+                className: "slds-input slds-input_small",
+                value: namingRegex,
+                onChange: this.handleNamingRegexChange,
+                placeholder: "[A-Za-z0-9]+_[A-Za-z0-9]+",
+                title: "Regular expression pattern for flow naming convention validation"
+              })
+            ),
+            // Description (truncated)
+            h("div", {className: "rule-description-horizontal", title: rule.description}, rule.description)
+          )
+        )
       )
     );
   }

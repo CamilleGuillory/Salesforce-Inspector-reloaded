@@ -203,3 +203,93 @@ button:hover,
   border-color: #005fb2;
   color: #fff;
 }
+
+/* Flow Scanner Rules Option Styles */
+.option-group {
+  margin-bottom: 1rem;
+}
+
+.option-group h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.rules-container {
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.rule-row-horizontal {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #e5e5e5;
+  padding: 8px 12px;
+  min-height: 40px;
+}
+
+.rule-row-horizontal:last-child {
+  border-bottom: none;
+}
+
+.rule-toggle-container {
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.rule-name-horizontal {
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 0.95rem;
+  min-width: 170px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rule-config-inline {
+  flex-shrink: 0;
+  min-width: 180px;
+  max-width: 220px;
+  margin-right: 8px;
+}
+
+.rule-config-inline input {
+  width: 100%;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+}
+
+.rule-description-horizontal {
+  flex: 1 1 0;
+  font-size: 0.85rem;
+  color: #6c757d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.slds-input_small {
+  height: 28px;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+}
+
+.slds-checkbox_toggle .slds-checkbox_faux_container {
+  min-width: 60px;
+}
+
+.rule-row-horizontal .slds-checkbox_toggle {
+  margin: 0;
+}
+
+.rule-row-horizontal input[disabled] {
+  background-color: #f8f9fa;
+  color: #6c757d;
+  cursor: not-allowed;
+}

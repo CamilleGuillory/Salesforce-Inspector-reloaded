@@ -29,7 +29,7 @@ class FlowScanner {
     // Wait for DOM to be ready before binding events
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", () => {
-    this.bindEvents();
+        this.bindEvents();
       });
     } else {
       // DOM is already loaded
@@ -73,9 +73,9 @@ class FlowScanner {
     });
 
     if (exportButton) {
-    exportButton.addEventListener("click", () => {
-      this.handleExportClick();
-    });
+      exportButton.addEventListener("click", () => {
+        this.handleExportClick();
+      });
     }
 
     // Add keyboard shortcuts
@@ -235,29 +235,29 @@ class FlowScanner {
         // If Flow query failed but FlowDefinition succeeded, try alternative approach
         if (!flowRecord && flowDefRecord) {
           console.log("Flow query failed but FlowDefinition succeeded. Trying alternative approach...");
-          
+
           // First, try to get flows without Metadata to find the matching one
           const flowsListRes = await sfConn.rest(`/services/data/v${apiVersion}/tooling/query?q=SELECT+Id,FullName,Label,ProcessType+FROM+Flow+WHERE+FullName='${flowDefRecord.DeveloperName}'&cache=${cacheBuster}`);
-          
+
           console.log("Flows List API response:", flowsListRes);
-          
+
           if (flowsListRes.records && flowsListRes.records.length > 0) {
             console.log("Found matching flow in list:", flowsListRes.records[0]);
             const matchingFlowId = flowsListRes.records[0].Id;
-            
+
             // Now get the specific flow with Metadata using the correct ID
             const specificFlowRes = await sfConn.rest(`/services/data/v${apiVersion}/tooling/query?q=SELECT+Id,Metadata+FROM+Flow+WHERE+Id='${matchingFlowId}'&cache=${cacheBuster}`);
-            
+
             console.log("Specific Flow API response:", specificFlowRes);
-            
+
             if (specificFlowRes.records && specificFlowRes.records.length > 0) {
               const matchingFlow = specificFlowRes.records[0];
               console.log("Found matching flow with metadata:", matchingFlow);
-              
+
               // Use the matching flow record
               const flowType = matchingFlow.Metadata?.processType || "Unknown";
               const flowStatus = matchingFlow.Metadata?.status || "Unknown";
-              
+
               const result = {
                 id: matchingFlow.Id,
                 definitionId: this.flowDefId,
@@ -268,7 +268,7 @@ class FlowScanner {
                 status: flowStatus,
                 xmlData: matchingFlow.Metadata
               };
-              
+
               console.log("Using matching flow record:", result);
               return result;
             }
@@ -278,7 +278,7 @@ class FlowScanner {
             console.log("FlowDefinition MasterLabel:", flowDefRecord.MasterLabel);
           }
         }
-        
+
         throw new Error("Flow or FlowDefinition not found");
       }
 
@@ -523,36 +523,63 @@ class FlowScanner {
       console.log("Flow type:", flow.type);
       console.log("Flow status:", flow.status);
 
-      // Use the scan method from Flow Scanner Core with ParsedFlow array
-      console.log("Calling flowScannerCore.scan with parsed flow");
+      // Always re-read localStorage for the latest state before building ruleConfig
+      const stored = JSON.parse(localStorage.getItem("flowScannerRules") || "[]");
+      const selected = stored.filter(c => c.checked).map(c => c.name);
       let ruleConfig;
       try {
-        const stored = JSON.parse(localStorage.getItem("flowScannerRules") || "[]");
-        const selected = stored.filter(c => c.checked).map(c => c.name);
-        if (selected.length) {
+        console.log("Stored flow scanner rules:", stored);
+        console.log("Selected rules:", selected);
+
+        // Always create a ruleConfig object to ensure proper configuration
+        ruleConfig = {rules: {}};
+
+        if (selected.length > 0) {
+          // Get all available rules from the Flow Scanner Core
           const allRules = this.flowScannerCore.getRules().map(r => r.name);
-          const disabled = allRules.filter(name => !selected.includes(name));
-          if (disabled.length) {
-            ruleConfig = {rules: {}};
-            disabled.forEach(name => {
-              ruleConfig.rules[name] = {disabled: "true"};
-            });
-          }
+          console.log("All available rules:", allRules);
+
+          // Explicitly configure all rules: enable selected ones, disable unselected ones
+          allRules.forEach(name => {
+            if (selected.includes(name)) {
+              // Enable the rule by setting it to an empty object (no disabled flag)
+              ruleConfig.rules[name] = {};
+            } else {
+              // Disable the rule
+              ruleConfig.rules[name] = {disabled: true};
+            }
+          });
+        } else {
+          // If no rules are selected, disable all rules
+          const allRules = this.flowScannerCore.getRules().map(r => r.name);
+          console.log("No rules selected, disabling all rules:", allRules);
+          allRules.forEach(name => {
+            ruleConfig.rules[name] = {disabled: true};
+          });
         }
+
+        // Add naming regex configuration if available and FlowName is enabled
         const namingRegex = localStorage.getItem("flowScannerNamingRegex");
-        if (namingRegex) {
-          if (!ruleConfig) ruleConfig = {rules: {}};
+        if (namingRegex && selected.includes("FlowName")) {
           if (!ruleConfig.rules) ruleConfig.rules = {};
           ruleConfig.rules.FlowName = {expression: namingRegex};
         }
+
+        console.log("Final rule configuration:", ruleConfig);
+        console.log("Rule configuration will be applied to Flow Scanner Core");
+        console.log("Note: All rules are explicitly configured to ensure core respects our options");
       } catch (e) {
         console.error("Error preparing rule configuration", e);
+        // Fallback to no configuration if there's an error
+        ruleConfig = undefined;
       }
+      // Debug: Log ruleConfig and selected rules before scan
+      console.log("[DEBUG] About to scan. ruleConfig:", JSON.stringify(ruleConfig, null, 2));
+      console.log("[DEBUG] Selected rules:", selected);
+
+      // Always pass a proper config - never undefined
       const scanResults = this.flowScannerCore.scan([parsedFlow], ruleConfig);
-      console.log("Flow Scanner Core returned results:", scanResults);
-      console.log("Scan results type:", typeof scanResults);
-      console.log("Scan results length:", scanResults?.length);
-      console.log("Full scan results structure:", JSON.stringify(scanResults, null, 2));
+      console.log("[DEBUG] Scan completed. Results:", JSON.stringify(scanResults, null, 2));
 
       const results = [];
 
@@ -862,7 +889,7 @@ class FlowScanner {
       warning: "<span class='sev-ico warning' aria-label='Warning'>⚠️</span>",
       info: "<span class='sev-ico info' aria-label='Info'>ℹ️</span>"
     };
-    const severityGroups = { error: [], warning: [], info: [] };
+    const severityGroups = {error: [], warning: [], info: []};
     results.forEach(r => {
       if (severityGroups[r.severity]) severityGroups[r.severity].push(r);
     });
@@ -905,8 +932,8 @@ class FlowScanner {
             </button>
             <button id="expand-all-btn" class="summary-action-btn">Expand All</button>
             <button id="collapse-all-btn" class="summary-action-btn">Collapse All</button>
-              </div>
-            </div>
+          </div>
+        </div>
       `;
     }
 
@@ -915,7 +942,7 @@ class FlowScanner {
     severityOrder.forEach(sev => {
       const group = severityGroups[sev];
       if (!group.length) return;
-        resultsHTML += `
+      resultsHTML += `
         <div class="severity-block ${sev} sev-spacing">
           <div class="severity-header">
             ${severityIcons[sev] || ""}
@@ -934,28 +961,28 @@ class FlowScanner {
         // Pick the right icon for this rule group
         const ruleIcon = severityIcons[sev] || "";
         const ruleId = `rule-${sev}-${ruleIdx}`;
-          resultsHTML += `
+        resultsHTML += `
           <div class="rule-section compact expanded card-bg" data-rule-type="${ruleType}">
             <div class="rule-header ${sev}" data-accordion-toggle="true" tabindex="0" role="button" aria-expanded="true" aria-controls="${ruleId}">
               <div class="rule-title-section">
                 ${ruleIcon}
                 <span class="rule-name-compact">${ruleType}</span>
                 <span class="badge-total circle-badge">${ruleResults.length}</span>
-                </div>
+              </div>
               <div class="rule-desc-compact">${ruleResults[0].description || "Rule violation detected"}</div>
               <svg class="accordion-chevron" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                 <path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/>
               </svg>
-              </div>
+            </div>
             <div class="rule-content" id="${ruleId}">
         `;
         ruleResults.forEach((result, idx) => {
           resultsHTML += this.createIssueCompactHTML(result, idx !== ruleResults.length - 1);
         });
-      resultsHTML += `
+        resultsHTML += `
+            </div>
           </div>
-        </div>
-      `;
+        `;
       });
       resultsHTML += `</div>`;
     });
