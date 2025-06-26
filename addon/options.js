@@ -223,20 +223,31 @@ class OptionsTabSelector extends React.Component {
       {option: Option, props: {type: "toggle", title: "Use legacy version", key: "useLegacyDlMetadata", default: false}},
         ]
       },
-      {
-        id: 8,
-        tabTitle: "Tab7",
-        title: "Flow Scanner",
-        content: [
-          {option: MultiCheckboxButtonGroup,
-            props: {title: "Enabled Rules",
-              key: "flowScannerRules",
-              checkboxes: ruleCheckboxes}}
-        ]
+{
+  id: 8,
+  tabTitle: "Tab7",
+  title: "Flow Scanner",
+  content: [
+    {
+      option: MultiCheckboxButtonGroup,
+      props: {
+        title: "Enabled Rules",
+        key: "flowScannerRules",
+        checkboxes: ruleCheckboxes
       }
-    ];
-    this.onTabSelect = this.onTabSelect.bind(this);
-  }
+    },
+    {
+      option: Option,
+      props: {
+        type: "text",
+        title: "Flow Naming Convention Regex",
+        key: "flowScannerNamingRegex",
+        default: "[A-Za-z0-9]+_[A-Za-z0-9]+",
+        tooltip: "Regular expression applied by the Flow Naming Convention rule"
+      }
+    }
+  ]
+}
 
   onTabSelect(e) {
     e.preventDefault();
