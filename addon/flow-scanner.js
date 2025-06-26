@@ -525,7 +525,24 @@ class FlowScanner {
 
       // Use the scan method from Flow Scanner Core with ParsedFlow array
       console.log("Calling flowScannerCore.scan with parsed flow");
-      const scanResults = this.flowScannerCore.scan([parsedFlow]);
+      let ruleConfig;
+      try {
+        const stored = JSON.parse(localStorage.getItem("flowScannerRules") || "[]");
+        const selected = stored.filter(c => c.checked).map(c => c.name);
+        if (selected.length) {
+          const allRules = this.flowScannerCore.getRules().map(r => r.name);
+          const disabled = allRules.filter(name => !selected.includes(name));
+          if (disabled.length) {
+            ruleConfig = {rules: {}};
+            disabled.forEach(name => {
+              ruleConfig.rules[name] = {disabled: "true"};
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Error preparing rule configuration", e);
+      }
+      const scanResults = this.flowScannerCore.scan([parsedFlow], ruleConfig);
       console.log("Flow Scanner Core returned results:", scanResults);
       console.log("Scan results type:", typeof scanResults);
       console.log("Scan results length:", scanResults?.length);
