@@ -74,11 +74,50 @@ class OptionsTabSelector extends React.Component {
       selectedTabId: initialTabId
     };
 
-    const ruleCheckboxes = (window.lightningflowscanner?.getRules() || []).map((rule) => ({
-      label: rule.label || rule.name,
-      name: rule.name,
-      checked: true  // All rules enabled by default
-    }));
+    // Initialize rule checkboxes with fallback for when lightningflowscanner is not available
+    let ruleCheckboxes = [];
+    
+    // Try to get rules from lightningflowscanner if available
+    if (window.lightningflowscanner && typeof window.lightningflowscanner.getRules === "function") {
+      try {
+        ruleCheckboxes = window.lightningflowscanner.getRules().map((rule) => ({
+          label: rule.label || rule.name,
+          name: rule.name,
+          checked: true  // All rules enabled by default
+        }));
+      } catch (error) {
+        console.warn("Error getting rules from lightningflowscanner:", error);
+      }
+    }
+    
+    // If no rules were found, use a fallback list of common rules
+    if (ruleCheckboxes.length === 0) {
+      console.log("lightningflowscanner not available, using fallback rules");
+      ruleCheckboxes = [
+        {label: "API Version", name: "APIVersion", checked: true},
+        {label: "Auto Layout", name: "AutoLayout", checked: true},
+        {label: "Copy API Name", name: "CopyAPIName", checked: true},
+        {label: "Cyclomatic Complexity", name: "CyclomaticComplexity", checked: true},
+        {label: "DML Statement in Loop", name: "DMLStatementInLoop", checked: true},
+        {label: "Duplicate DML Operation", name: "DuplicateDMLOperation", checked: true},
+        {label: "Flow Description", name: "FlowDescription", checked: true},
+        {label: "Flow Name", name: "FlowName", checked: true},
+        {label: "Get Record All Fields", name: "GetRecordAllFields", checked: true},
+        {label: "Hardcoded ID", name: "HardcodedId", checked: true},
+        {label: "Hardcoded URL", name: "HardcodedUrl", checked: true},
+        {label: "Inactive Flow", name: "InactiveFlow", checked: true},
+        {label: "Missing Fault Path", name: "MissingFaultPath", checked: true},
+        {label: "Missing Null Handler", name: "MissingNullHandler", checked: true},
+        {label: "Process Builder", name: "ProcessBuilder", checked: true},
+        {label: "Recursive After Update", name: "RecursiveAfterUpdate", checked: true},
+        {label: "Same Record Field Updates", name: "SameRecordFieldUpdates", checked: true},
+        {label: "SOQL Query in Loop", name: "SOQLQueryInLoop", checked: true},
+        {label: "Trigger Order", name: "TriggerOrder", checked: true},
+        {label: "Unconnected Element", name: "UnconnectedElement", checked: true},
+        {label: "Unsafe Running Context", name: "UnsafeRunningContext", checked: true},
+        {label: "Unused Variable", name: "UnusedVariable", checked: true}
+      ];
+    }
 
     this.tabs = [
       {
@@ -862,6 +901,7 @@ class FlowScannerRulesOption extends React.Component {
     this.handleNamingRegexChange = this.handleNamingRegexChange.bind(this);
     this.handleCheckAll = this.handleCheckAll.bind(this);
     this.handleUncheckAll = this.handleUncheckAll.bind(this);
+    this.handleResetToDefaults = this.handleResetToDefaults.bind(this);
 
     this.title = props.title;
     this.key = props.storageKey;
@@ -889,7 +929,7 @@ class FlowScannerRulesOption extends React.Component {
       merged.push({
         name: defaultRule.name,
         label: defaultRule.label,
-        checked: storedRule ? storedRule.checked : defaultRule.checked,
+        checked: storedRule ? storedRule.checked : true,
         description: this.getRuleDescription(defaultRule.name)
       });
     }
@@ -954,6 +994,12 @@ class FlowScannerRulesOption extends React.Component {
     localStorage.setItem(this.key, JSON.stringify(updatedRules));
   }
 
+  handleResetToDefaults() {
+    const updatedRules = this.state.rules.map(rule => ({ ...rule, checked: true }));
+    this.setState({ rules: updatedRules });
+    localStorage.setItem(this.key, JSON.stringify(updatedRules));
+  }
+
   render() {
     const { title } = this.props;
     const { rules } = this.state;
@@ -971,7 +1017,12 @@ class FlowScannerRulesOption extends React.Component {
           className: "button button-neutral button-small rules-action-btn",
           type: "button",
           onClick: this.handleUncheckAll
-        }, "Uncheck All")
+        }, "Uncheck All"),
+        h("button", {
+          className: "button button-neutral button-small rules-action-btn",
+          type: "button",
+          onClick: this.handleResetToDefaults
+        }, "Reset to Defaults")
       ),
       h("div", {className: "rules-container"},
         rules.map((rule) => 

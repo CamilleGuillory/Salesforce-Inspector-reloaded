@@ -512,22 +512,28 @@ class FlowScanner {
       };
 
       // Create a Flow object using the Flow Scanner Core's Flow class
-      const flow = new this.flowScannerCore.Flow("virtual-flow.xml", flowData);
+      // Use the actual flow API name instead of 'virtual-flow' for proper rule validation
+      const flow = new this.flowScannerCore.Flow(this.currentFlow.apiName || this.currentFlow.name, flowData);
 
       // Create a ParsedFlow object
-      const parsedFlow = new this.flowScannerCore.ParsedFlow("virtual-flow.xml", flow);
+      const parsedFlow = new this.flowScannerCore.ParsedFlow(this.currentFlow.apiName || this.currentFlow.name, flow);
 
-      console.log("Created flow object for core scanner:", flow);
-      console.log("Flow elements count:", flow.elements?.length || 0);
-      console.log("Flow name:", flow.name);
-      console.log("Flow type:", flow.type);
-      console.log("Flow status:", flow.status);
+      // Debug: Log the flow data being passed to core
+      console.log("Flow data being passed to core:", {
+        flowName: flow.name,
+        flowApiName: flow.apiName,
+        flowLabel: flow.label,
+        flowType: flow.type,
+        flowStatus: flow.status
+      });
 
-      // Always re-read localStorage for the latest state before building ruleConfig
+      // Read rule selection from localStorage
       let storedRaw = localStorage.getItem("flowScannerRules");
       let stored;
       try {
         stored = JSON.parse(storedRaw || "[]");
+        console.log("Raw localStorage flowScannerRules:", storedRaw);
+        console.log("Parsed flowScannerRules:", stored);
       } catch (e) {
         console.warn("Failed to parse flowScannerRules, resetting", e);
         stored = [];
@@ -541,59 +547,53 @@ class FlowScanner {
         }
       }
 
+      // Only include enabled rules in the config
       const selected = stored.filter(c => c.checked).map(c => c.name);
-      let ruleConfig;
-      try {
-        console.log("Stored flow scanner rules:", stored);
-        console.log("Selected rules:", selected);
+      console.log("Selected rules from localStorage:", selected);
+      console.log("Total stored rules:", stored.length);
+      console.log("Checked rules count:", selected.length);
 
-        // Always create a ruleConfig object to ensure proper configuration
-        ruleConfig = {rules: {}};
-
-        if (selected.length > 0) {
-          // Get all available rules from the Flow Scanner Core
-          const allRules = this.flowScannerCore.getRules().map(r => r.name);
-          console.log("All available rules:", allRules);
-
-          // Explicitly configure all rules: enable selected ones, disable unselected ones
-          allRules.forEach(name => {
-            if (selected.includes(name)) {
-              // Enable the rule by setting it to an empty object (no disabled flag)
-              ruleConfig.rules[name] = {};
-            } else {
-              // Disable the rule
-              ruleConfig.rules[name] = {disabled: true};
-            }
-          });
-        } else {
-          // If no rules are selected, disable all rules
-          const allRules = this.flowScannerCore.getRules().map(r => r.name);
-          console.log("No rules selected, disabling all rules:", allRules);
-          allRules.forEach(name => {
-            ruleConfig.rules[name] = {disabled: true};
-          });
-        }
-
-        // Add naming regex configuration if available and FlowName is enabled
-        const namingRegex = localStorage.getItem("flowScannerNamingRegex");
-        if (namingRegex && selected.includes("FlowName")) {
-          if (!ruleConfig.rules) ruleConfig.rules = {};
-          ruleConfig.rules.FlowName = {expression: namingRegex};
-        }
-
-        console.log("Final rule configuration:", ruleConfig);
-        console.log("Rule configuration will be applied to Flow Scanner Core");
-        console.log("Note: All rules are explicitly configured to ensure core respects our options");
-      } catch (e) {
-        console.error("Error preparing rule configuration", e);
-        // Fallback to no configuration if there's an error
-        ruleConfig = undefined;
+      // If no rules are selected, inform user and do not scan
+      if (selected.length === 0) {
+        console.log("No rules selected - all rules are disabled");
+        this.showError("No Flow Scanner rules are enabled. Please go to the Options page and enable at least one rule in the Flow Scanner tab.");
+        return [];
       }
-      // Debug: Log ruleConfig and selected rules before scan
-      console.log("[DEBUG] About to scan. ruleConfig:", JSON.stringify(ruleConfig, null, 2));
-      console.log("[DEBUG] Selected rules:", selected);
 
-      // Always pass a proper config - never undefined
+      // Build ruleConfig with only enabled rules
+      let ruleConfig = {rules: {}};
+      selected.forEach(name => {
+        // If FlowName and naming regex is set, include it
+        if (name === "FlowName") {
+          const namingRegex = localStorage.getItem("flowScannerNamingRegex");
+          if (namingRegex) {
+            // Debug: Test the regex against the current flow name
+            const flowApiName = this.currentFlow.xmlData?.apiName || this.currentFlow.xmlData?.name || this.currentFlow.name || "Unknown";
+            const regexTest = new RegExp(namingRegex);
+            const isMatch = regexTest.test(flowApiName);
+            console.log("FlowName regex test:", {
+              regex: namingRegex,
+              flowApiName,
+              isMatch
+            });
+
+            ruleConfig.rules.FlowName = {expression: namingRegex};
+            return; // Exit early to prevent overwriting with empty config
+          }
+        }
+        // Otherwise, just enable the rule (empty config)
+        ruleConfig.rules[name] = {};
+      });
+      console.log("Final rule configuration (only enabled rules):", ruleConfig);
+
+      // Debug: Show exact configuration being passed to core
+      console.log("DEBUG: Rule configuration details:", {
+        enabledRules: Object.keys(ruleConfig.rules),
+        flowNameRuleConfig: ruleConfig.rules.FlowName,
+        totalRulesInConfig: Object.keys(ruleConfig.rules).length
+      });
+
+      // Pass only enabled rules to the core scan function
       const scanResults = this.flowScannerCore.scan([parsedFlow], ruleConfig);
       console.log("[DEBUG] Scan completed. Results:", JSON.stringify(scanResults, null, 2));
 
@@ -705,35 +705,23 @@ class FlowScanner {
               // Add additional fields for export
               ruleDescription,
               ruleLabel,
-              flowName: this.currentFlow.name,
-              name: "Flow Level",
-              type: "Flow",
-              metaType: "",
-              dataType: "",
-              locationX: "",
-              locationY: "",
-              connectsTo: "",
-              expression: ""
+              flowName: this.currentFlow.name
             };
-
-            console.log("Converted result (no details):", result);
+            console.log("Converted result:", result);
             results.push(result);
           }
         }
       }
 
-      console.log("Final processed results:", results);
-      console.log("Results count:", results.length);
       return results;
-
     } catch (error) {
       console.error("Error in scanWithCore:", error);
-      console.error("Error stack:", error.stack);
+      this.showError("Failed to scan flow: " + error.message);
       return [{
         rule: "Scan Error",
-        description: "Failed to scan flow with Flow Scanner Core: " + error.message,
+        description: "Failed to scan flow: " + error.message,
         severity: "error",
-        details: "Flow: " + this.currentFlow.name
+        details: "Flow: " + (this.currentFlow ? this.currentFlow.name : "Unknown")
       }];
     }
   }
@@ -862,6 +850,9 @@ class FlowScanner {
   }
 
   displayResults(results) {
+    console.log("displayResults called with:", results);
+    console.log("Previous scanResults:", this.scanResults);
+    
     this.scanResults = results;
     this.updateExportButton();
 
@@ -875,8 +866,22 @@ class FlowScanner {
 
     // Show results section
     resultsSection.style.display = "block";
+    
+    // Clear the results container before adding new content
+    console.log("Clearing results container...");
+    resultsContainer.innerHTML = "";
+
+    // Calculate summary statistics (even for 0 results)
+    const totalIssues = results.length;
+    const errorCount = results.filter(r => r.severity === "error").length;
+    const warningCount = results.filter(r => r.severity === "warning").length;
+    const infoCount = results.filter(r => r.severity === "info").length;
+    
+    // Always update summary stats, even for 0 results
+    this.updateSummaryStats(totalIssues, errorCount, warningCount, infoCount);
 
     if (results.length === 0) {
+      console.log("No results to display, showing success state");
       resultsContainer.innerHTML = `
         <div class="success-state">
           <div class="success-icon">✅</div>
@@ -894,28 +899,60 @@ class FlowScanner {
           </div>
         </div>
       `;
+      
+      // Update the results summary section for 100% pass case
+      const resultsSummary = document.getElementById("results-summary");
+      if (resultsSummary) {
+        resultsSummary.innerHTML = `
+          <div class="summary-stats" role="group" aria-label="Scan results summary">
+            <div class="summary-title">
+              <span class="results-icon">📊</span>
+              <span>Scan Results</span>
+            </div>
+            <div class="stat-item total" role="group" aria-label="Total issues">
+              <span class="stat-number" id="total-issues" aria-label="Total issues count">0</span>
+              <span class="stat-label">Total</span>
+            </div>
+            <div class="stat-item error" role="group" aria-label="Error issues">
+              <span class="stat-number" id="error-count" aria-label="Error count">0</span>
+              <span class="stat-label">Errors</span>
+            </div>
+            <div class="stat-item warning" role="group" aria-label="Warning issues">
+              <span class="stat-number" id="warning-count" aria-label="Warning count">0</span>
+              <span class="stat-label">Warnings</span>
+            </div>
+            <div class="stat-item info" role="group" aria-label="Information issues">
+              <span class="stat-number" id="info-count" aria-label="Info count">0</span>
+              <span class="stat-label">Info</span>
+            </div>
+            <div class="summary-actions">
+              <button id="export-button" class="summary-action-btn" title="Export Results" disabled>
+                <span class="export-icon" aria-hidden="true">📁</span> Export
+              </button>
+            </div>
+          </div>
+        `;
+      }
+      
+      // Announce results for 100% pass case
+      this.announceResults(totalIssues, errorCount, warningCount, infoCount);
       return;
     }
 
+    console.log("Building results HTML for", results.length, "results");
+
     // Group results by severity, then by rule name
     const severityOrder = ["error", "warning", "info"];
-    const severityLabels = { error: "Errors", warning: "Warnings", info: "Info" };
+    const severityLabels = {error: "Errors", warning: "Warnings", info: "Info"};
     const severityIcons = {
-      error: "<span class='sev-ico error' aria-label='Error'>❗</span>",
-      warning: "<span class='sev-ico warning' aria-label='Warning'>⚠️</span>",
-      info: "<span class='sev-ico info' aria-label='Info'>ℹ️</span>"
+      error: "<span class=\"sev-ico error\" aria-label=\"Error\">❗</span>",
+      warning: "<span class=\"sev-ico warning\" aria-label=\"Warning\">⚠️</span>",
+      info: "<span class=\"sev-ico info\" aria-label=\"Info\">ℹ️</span>"
     };
     const severityGroups = {error: [], warning: [], info: []};
     results.forEach(r => {
       if (severityGroups[r.severity]) severityGroups[r.severity].push(r);
     });
-
-    // Calculate summary statistics
-    const totalIssues = results.length;
-    const errorCount = severityGroups.error.length;
-    const warningCount = severityGroups.warning.length;
-    const infoCount = severityGroups.info.length;
-    this.updateSummaryStats(totalIssues, errorCount, warningCount, infoCount);
 
     // Update the summary section to include action buttons
     const resultsSummary = document.getElementById("results-summary");
@@ -1004,10 +1041,15 @@ class FlowScanner {
     });
 
     resultsContainer.innerHTML = resultsHTML;
+    console.log("Results HTML set, container now contains:", resultsContainer.innerHTML.length, "characters");
+    console.log("Results container children count:", resultsContainer.children.length);
+    
     this.bindAccordionEvents();
     this.bindExpandCollapseAll();
     this.bindExportButton();
     this.announceResults(totalIssues, errorCount, warningCount, infoCount);
+    
+    console.log("displayResults completed successfully");
   }
 
   bindAccordionEvents() {
@@ -1125,13 +1167,35 @@ class FlowScanner {
 
   showError(message) {
     const container = document.getElementById("results-container");
-    container.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">❌</div>
-        <h3>Error Occurred</h3>
-        <p>${message}</p>
-      </div>
-    `;
+    const resultsSection = document.getElementById("results-section");
+    
+    // Show results section
+    if (resultsSection) {
+      resultsSection.style.display = "block";
+    }
+    
+    if (message.includes("No Flow Scanner rules are enabled")) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">⚙️</div>
+          <h3>No Rules Enabled</h3>
+          <p>${message}</p>
+          <div class="action-buttons">
+            <button onclick="window.open('options.html?selectedTab=8', '_blank')" class="button button-brand">
+              Open Flow Scanner Options
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">❌</div>
+          <h3>Error Occurred</h3>
+          <p>${message}</p>
+        </div>
+      `;
+    }
   }
 
   closeOverlay() {
