@@ -8,6 +8,12 @@ if (typeof lightningflowscanner !== "undefined") {
   console.log("lightningflowscanner found:", lightningflowscanner);
 }
 
+const normalizeSeverity = (sev, direction = "ui") => {
+  if (direction === "ui") return sev === "note" ? "info" : sev;
+  if (direction === "storage") return sev === "info" ? "note" : sev;
+  return sev;
+};
+
 class FlowScanner {
   constructor(sfHost, flowDefId, flowId) {
     console.log("FlowScanner constructor called with:", {sfHost, flowDefId, flowId});
@@ -506,10 +512,55 @@ class FlowScanner {
         }];
       }
 
+      // Check if flow type is supported by Flow Scanner rules
+      const supportedFlowTypes = [
+        "AutoLaunchedFlow",
+        "CustomEvent",
+        "InvocableProcess",
+        "Orchestrator",
+        "EvaluationFlow",
+        "ActionCadenceAutolaunchedFlow",
+        "Flow",
+        "IndividualObjectLinkingFlow",
+        "LoginFlow",
+        "RoutingFlow",
+        "Appointments",
+        "ActionCadenceStepFlow",
+        "ContactRequestFlow",
+        "CustomerLifecycle",
+        "FieldServiceMobile",
+        "FieldServiceWeb",
+        "SurveyEnrich",
+        "Survey"
+      ];
+
+      const currentFlowType = this.currentFlow.type;
+      const isFlowTypeSupported = supportedFlowTypes.includes(currentFlowType);
+
+      if (!isFlowTypeSupported) {
+        console.warn(`Flow type "${currentFlowType}" is not supported by Flow Scanner rules`);
+        return [{
+          rule: "Flow Type Not Supported",
+          description: `Flow Scanner rules do not currently support "${currentFlowType}" flow type`,
+          severity: "warning",
+          details: `This flow type (${currentFlowType}) is not included in the supported flow types for Flow Scanner rules. The scanner may not detect all potential issues. Supported types include: ${supportedFlowTypes.join(", ")}.`
+        }];
+      }
+
       // Create a Flow object from the metadata
       const flowData = {
         Flow: this.currentFlow.xmlData
       };
+
+      // Debug: Show what flow data is being passed to the scanner core
+      console.log("🔍 Flow data being passed to scanner core:", {
+        flowName: this.currentFlow.name,
+        flowApiVersion: this.currentFlow.xmlData?.apiVersion,
+        flowType: this.currentFlow.type,
+        flowStatus: this.currentFlow.status,
+        xmlDataKeys: Object.keys(this.currentFlow.xmlData || {}),
+        apiVersionInXmlData: this.currentFlow.xmlData?.apiVersion
+      });
 
       // Create a Flow object using the Flow Scanner Core's Flow class
       // Use the actual flow API name instead of 'virtual-flow' for proper rule validation
@@ -560,31 +611,117 @@ class FlowScanner {
         return [];
       }
 
-      // Build ruleConfig with only enabled rules
+      // Build ruleConfig with only enabled rules and their configurations
       let ruleConfig = {rules: {}};
       selected.forEach(name => {
-        // If FlowName and naming regex is set, include it
-        if (name === "FlowName") {
-          const namingRegex = localStorage.getItem("flowScannerNamingRegex");
-          if (namingRegex) {
-            // Debug: Test the regex against the current flow name
-            const flowApiName = this.currentFlow.xmlData?.apiName || this.currentFlow.xmlData?.name || this.currentFlow.name || "Unknown";
-            const regexTest = new RegExp(namingRegex);
-            const isMatch = regexTest.test(flowApiName);
-            console.log("FlowName regex test:", {
-              regex: namingRegex,
-              flowApiName,
-              isMatch
-            });
+        // Get the stored rule configuration
+        const storedRule = stored.find(r => r.name === name);
+        const ruleConfigEntry = storedRule?.config || {};
+        const severity = storedRule?.severity || "error";
+        const scannerSeverity = normalizeSeverity(severity, "storage");
 
-            ruleConfig.rules.FlowName = {expression: namingRegex};
-            return; // Exit early to prevent overwriting with empty config
+        // Apply specific configurations based on rule type
+        if (name === "FlowName") {
+          const namingRegex = ruleConfigEntry.expression || "[A-Za-z0-9]+_[A-Za-z0-9]+";
+          if (namingRegex) {
+            ruleConfig.rules.FlowName = {expression: namingRegex, severity: scannerSeverity};
           }
+        } else if (name === "APIVersion") {
+          // APIVersion should be a minimum version threshold (integer)
+          // Handle both old and new configuration formats
+          let minVersion = 50; // default
+
+          if (ruleConfigEntry.threshold !== undefined) {
+            minVersion = parseInt(ruleConfigEntry.threshold);
+          } else if (ruleConfigEntry.expression !== undefined) {
+            // Handle old format where expression contained the value
+            const expressionValue = ruleConfigEntry.expression;
+            if (typeof expressionValue === "string" && expressionValue.includes("<")) {
+              // Old format: "<50" -> extract 50
+              minVersion = parseInt(expressionValue.replace(/[<>]/g, ""));
+            } else {
+              // New format: "65" -> use 65
+              minVersion = parseInt(expressionValue);
+            }
+          }
+
+          // Ensure we have a valid number
+          if (isNaN(minVersion)) {
+            minVersion = 50; // fallback to default
+          }
+
+          // The APIVersion rule expects an expression like ">=560" or "<560"
+          // We want to trigger an error if the flow API version is less than the minimum
+          ruleConfig.rules.APIVersion = {expression: `>=${minVersion}`, severity: scannerSeverity};
+
+          // Debug: Log APIVersion configuration specifically
+          console.log("APIVersion rule configuration:", {
+            name: "APIVersion",
+            minVersion,
+            expression: `>=${minVersion}`,
+            severity: scannerSeverity,
+            storedConfig: ruleConfigEntry,
+            finalConfig: ruleConfig.rules.APIVersion,
+            configSource: ruleConfigEntry.threshold !== undefined ? "threshold"
+              : ruleConfigEntry.expression !== undefined ? "expression" : "default"
+          });
+        } else if (name === "AutoLayout") {
+          const enabled = ruleConfigEntry.enabled !== false;
+          if (enabled) {
+            ruleConfig.rules.AutoLayout = {severity: scannerSeverity};
+          }
+        } else if (name === "CyclomaticComplexity") {
+          const threshold = ruleConfigEntry.threshold || 25;
+          ruleConfig.rules.CyclomaticComplexity = {threshold, severity: scannerSeverity};
+        } else if (name === "ProcessBuilder") {
+          const enabled = ruleConfigEntry.enabled !== false;
+          if (enabled) {
+            ruleConfig.rules.ProcessBuilder = {severity: scannerSeverity};
+          }
+        } else {
+          // Otherwise, just enable the rule (empty config + severity)
+          ruleConfig.rules[name] = {severity: scannerSeverity};
         }
-        // Otherwise, just enable the rule (empty config)
-        ruleConfig.rules[name] = {};
       });
-      console.log("Final rule configuration (only enabled rules):", ruleConfig);
+      // Debug log to verify config
+      console.log("Final ruleConfig for scan:", ruleConfig);
+
+      // Debug: Show exact APIVersion configuration being passed to core
+      if (ruleConfig.rules.APIVersion) {
+        // Get flow API version from the correct location
+        const flowApiVersion = this.currentFlow?.apiVersion || this.currentFlow?.xmlData?.apiVersion || 64;
+
+        console.log("🚀 APIVersion config being sent to scanner core:", {
+          ruleName: "APIVersion",
+          config: ruleConfig.rules.APIVersion,
+          flowApiVersion,
+          expectedBehavior: `Should trigger error if flow API version (${flowApiVersion}) < configured min version (${ruleConfig.rules.APIVersion.expression.replace(">=", "")})`
+        });
+
+        // Debug: Show raw localStorage data for APIVersion rule
+        const storedAPIVersionRule = stored.find(r => r.name === "APIVersion");
+        if (storedAPIVersionRule) {
+          console.log("📦 Raw localStorage APIVersion rule data:", {
+            name: storedAPIVersionRule.name,
+            configType: storedAPIVersionRule.configType,
+            config: storedAPIVersionRule.config,
+            severity: storedAPIVersionRule.severity
+          });
+        }
+      }
+
+      // Test APIVersion configuration specifically
+      if (ruleConfig.rules.APIVersion) {
+        console.log("✅ APIVersion configuration verification:", {
+          expression: ruleConfig.rules.APIVersion.expression,
+          severity: ruleConfig.rules.APIVersion.severity,
+          isConfigured: !!ruleConfig.rules.APIVersion.expression,
+          expectedValue: ">=560",
+          actualValue: ruleConfig.rules.APIVersion.expression,
+          isCorrect: ruleConfig.rules.APIVersion.expression === ">=560",
+          configSource: ruleConfig.rules.APIVersion.configSource || "unknown"
+        });
+      }
 
       // Debug: Show exact configuration being passed to core
       console.log("DEBUG: Rule configuration details:", {
@@ -592,6 +729,80 @@ class FlowScanner {
         flowNameRuleConfig: ruleConfig.rules.FlowName,
         totalRulesInConfig: Object.keys(ruleConfig.rules).length
       });
+
+      // Custom APIVersion rule handler to avoid CSP issues
+      let customAPIVersionResult = null;
+      if (ruleConfig.rules.APIVersion && this.currentFlow) {
+        const flowApiVersion = this.currentFlow.apiVersion || this.currentFlow.xmlData?.apiVersion;
+        const minVersion = parseInt(ruleConfig.rules.APIVersion.expression.replace(/[>=<]/g, ""));
+        const operator = ruleConfig.rules.APIVersion.expression.replace(/[0-9]/g, "");
+        
+        console.log("🔍 Custom APIVersion evaluation:", {
+          flowApiVersion,
+          minVersion,
+          operator,
+          expression: ruleConfig.rules.APIVersion.expression,
+          severity: ruleConfig.rules.APIVersion.severity
+        });
+
+        let isViolation = false;
+        switch (operator) {
+          case ">=":
+            isViolation = flowApiVersion < minVersion;
+            break;
+          case "<=":
+            isViolation = flowApiVersion > minVersion;
+            break;
+          case ">":
+            isViolation = flowApiVersion <= minVersion;
+            break;
+          case "<":
+            isViolation = flowApiVersion >= minVersion;
+            break;
+          case "==":
+          case "=":
+            isViolation = flowApiVersion !== minVersion;
+            break;
+          default:
+            isViolation = flowApiVersion < minVersion; // Default to >= behavior
+        }
+
+        if (isViolation) {
+          customAPIVersionResult = {
+            rule: "Outdated API Version",
+            description: "Introducing newer API components may lead to unexpected issues with older versions of Flows, as they might not align with the underlying mechanics. Starting from API version 50.0, the 'Api Version' attribute has been readily available on the Flow Object. To ensure smooth operation and reduce discrepancies between API versions, it is strongly advised to regularly update and maintain them.",
+            severity: this.mapSeverity(ruleConfig.rules.APIVersion.severity),
+            details: `Flow API Version: ${flowApiVersion} | Required: ${ruleConfig.rules.APIVersion.expression} | Current version is below the minimum required version.`,
+            affectedElements: [{
+              elementName: "Flow API Version",
+              elementType: "apiVersion",
+              metaType: "attribute",
+              dataType: "number",
+              locationX: "",
+              locationY: "",
+              connectsTo: "",
+              expression: `Current: ${flowApiVersion}, Required: ${ruleConfig.rules.APIVersion.expression}`
+            }],
+            ruleDescription: "Introducing newer API components may lead to unexpected issues with older versions of Flows, as they might not align with the underlying mechanics. Starting from API version 50.0, the 'Api Version' attribute has been readily available on the Flow Object. To ensure smooth operation and reduce discrepancies between API versions, it is strongly advised to regularly update and maintain them.",
+            ruleLabel: "Outdated API Version",
+            flowName: this.currentFlow.name,
+            name: "Flow API Version",
+            type: "apiVersion",
+            metaType: "attribute",
+            dataType: "number",
+            locationX: "",
+            locationY: "",
+            connectsTo: "",
+            expression: `Current: ${flowApiVersion}, Required: ${ruleConfig.rules.APIVersion.expression}`
+          };
+          console.log("🚨 Custom APIVersion violation detected:", customAPIVersionResult);
+        } else {
+          console.log("✅ Custom APIVersion check passed - no violation");
+        }
+
+        // Remove APIVersion from core config to avoid CSP error
+        delete ruleConfig.rules.APIVersion;
+      }
 
       // Pass only enabled rules to the core scan function
       const scanResults = this.flowScannerCore.scan([parsedFlow], ruleConfig);
@@ -628,6 +839,13 @@ class FlowScanner {
           // Skip rules that don't have any violations (occurs: false)
           if (!ruleResult.occurs) {
             console.log("Skipping rule with no violations:", ruleResult.ruleName);
+            continue;
+          }
+
+          // Handle CSP-related errors for APIVersion rule
+          if (ruleResult.ruleName === "APIVersion" && ruleResult.errorMessage && ruleResult.errorMessage.includes("unsafe-eval")) {
+            console.warn("APIVersion rule failed due to CSP restrictions, but configuration was applied correctly");
+            // Continue processing other rules
             continue;
           }
 
@@ -711,6 +929,12 @@ class FlowScanner {
             results.push(result);
           }
         }
+      }
+
+      // Add custom APIVersion result if it exists
+      if (customAPIVersionResult) {
+        console.log("➕ Adding custom APIVersion result to results:", customAPIVersionResult);
+        results.push(customAPIVersionResult);
       }
 
       return results;
@@ -850,9 +1074,6 @@ class FlowScanner {
   }
 
   displayResults(results) {
-    console.log("displayResults called with:", results);
-    console.log("Previous scanResults:", this.scanResults);
-    
     this.scanResults = results;
     this.updateExportButton();
 
@@ -866,22 +1087,8 @@ class FlowScanner {
 
     // Show results section
     resultsSection.style.display = "block";
-    
-    // Clear the results container before adding new content
-    console.log("Clearing results container...");
-    resultsContainer.innerHTML = "";
-
-    // Calculate summary statistics (even for 0 results)
-    const totalIssues = results.length;
-    const errorCount = results.filter(r => r.severity === "error").length;
-    const warningCount = results.filter(r => r.severity === "warning").length;
-    const infoCount = results.filter(r => r.severity === "info").length;
-    
-    // Always update summary stats, even for 0 results
-    this.updateSummaryStats(totalIssues, errorCount, warningCount, infoCount);
 
     if (results.length === 0) {
-      console.log("No results to display, showing success state");
       resultsContainer.innerHTML = `
         <div class="success-state">
           <div class="success-icon">✅</div>
@@ -899,60 +1106,28 @@ class FlowScanner {
           </div>
         </div>
       `;
-      
-      // Update the results summary section for 100% pass case
-      const resultsSummary = document.getElementById("results-summary");
-      if (resultsSummary) {
-        resultsSummary.innerHTML = `
-          <div class="summary-stats" role="group" aria-label="Scan results summary">
-            <div class="summary-title">
-              <span class="results-icon">📊</span>
-              <span>Scan Results</span>
-            </div>
-            <div class="stat-item total" role="group" aria-label="Total issues">
-              <span class="stat-number" id="total-issues" aria-label="Total issues count">0</span>
-              <span class="stat-label">Total</span>
-            </div>
-            <div class="stat-item error" role="group" aria-label="Error issues">
-              <span class="stat-number" id="error-count" aria-label="Error count">0</span>
-              <span class="stat-label">Errors</span>
-            </div>
-            <div class="stat-item warning" role="group" aria-label="Warning issues">
-              <span class="stat-number" id="warning-count" aria-label="Warning count">0</span>
-              <span class="stat-label">Warnings</span>
-            </div>
-            <div class="stat-item info" role="group" aria-label="Information issues">
-              <span class="stat-number" id="info-count" aria-label="Info count">0</span>
-              <span class="stat-label">Info</span>
-            </div>
-            <div class="summary-actions">
-              <button id="export-button" class="summary-action-btn" title="Export Results" disabled>
-                <span class="export-icon" aria-hidden="true">📁</span> Export
-              </button>
-            </div>
-          </div>
-        `;
-      }
-      
-      // Announce results for 100% pass case
-      this.announceResults(totalIssues, errorCount, warningCount, infoCount);
       return;
     }
-
-    console.log("Building results HTML for", results.length, "results");
 
     // Group results by severity, then by rule name
     const severityOrder = ["error", "warning", "info"];
     const severityLabels = {error: "Errors", warning: "Warnings", info: "Info"};
     const severityIcons = {
-      error: "<span class=\"sev-ico error\" aria-label=\"Error\">❗</span>",
-      warning: "<span class=\"sev-ico warning\" aria-label=\"Warning\">⚠️</span>",
-      info: "<span class=\"sev-ico info\" aria-label=\"Info\">ℹ️</span>"
+      error: "<span class='sev-ico error' aria-label='Error'>❗</span>",
+      warning: "<span class='sev-ico warning' aria-label='Warning'>⚠️</span>",
+      info: "<span class='sev-ico info' aria-label='Info'>ℹ️</span>"
     };
     const severityGroups = {error: [], warning: [], info: []};
     results.forEach(r => {
       if (severityGroups[r.severity]) severityGroups[r.severity].push(r);
     });
+
+    // Calculate summary statistics
+    const totalIssues = results.length;
+    const errorCount = severityGroups.error.length;
+    const warningCount = severityGroups.warning.length;
+    const infoCount = severityGroups.info.length;
+    this.updateSummaryStats(totalIssues, errorCount, warningCount, infoCount);
 
     // Update the summary section to include action buttons
     const resultsSummary = document.getElementById("results-summary");
@@ -1037,19 +1212,14 @@ class FlowScanner {
           </div>
         `;
       });
-      resultsHTML += `</div>`;
+      resultsHTML += "</div>";
     });
 
     resultsContainer.innerHTML = resultsHTML;
-    console.log("Results HTML set, container now contains:", resultsContainer.innerHTML.length, "characters");
-    console.log("Results container children count:", resultsContainer.children.length);
-    
     this.bindAccordionEvents();
     this.bindExpandCollapseAll();
     this.bindExportButton();
     this.announceResults(totalIssues, errorCount, warningCount, infoCount);
-    
-    console.log("displayResults completed successfully");
   }
 
   bindAccordionEvents() {
@@ -1075,42 +1245,42 @@ class FlowScanner {
 
   toggleAccordion(section) {
     const expanded = section.classList.contains("expanded");
-    const header = section.querySelector('.rule-header');
-    const chevron = header && header.querySelector('.accordion-chevron');
+    const header = section.querySelector(".rule-header");
+    const chevron = header && header.querySelector(".accordion-chevron");
 
     if (expanded) {
       section.classList.remove("expanded");
       section.classList.add("collapsed");
-      if (header) header.setAttribute('aria-expanded', 'false');
-      if (chevron) chevron.classList.add('collapsed');
+      if (header) header.setAttribute("aria-expanded", "false");
+      if (chevron) chevron.classList.add("collapsed");
     } else {
       section.classList.remove("collapsed");
       section.classList.add("expanded");
-      if (header) header.setAttribute('aria-expanded', 'true');
-      if (chevron) chevron.classList.remove('collapsed');
+      if (header) header.setAttribute("aria-expanded", "true");
+      if (chevron) chevron.classList.remove("collapsed");
     }
   }
 
   bindExpandCollapseAll() {
-    const expandBtn = document.getElementById('expand-all-btn');
-    const collapseBtn = document.getElementById('collapse-all-btn');
+    const expandBtn = document.getElementById("expand-all-btn");
+    const collapseBtn = document.getElementById("collapse-all-btn");
     if (expandBtn) {
       expandBtn.onclick = () => {
-        document.querySelectorAll('.rule-section').forEach(sec => {
-          sec.classList.add('expanded');
-          sec.classList.remove('collapsed');
-          const header = sec.querySelector('.rule-header');
-          if (header) header.setAttribute('aria-expanded', 'true');
+        document.querySelectorAll(".rule-section").forEach(sec => {
+          sec.classList.add("expanded");
+          sec.classList.remove("collapsed");
+          const header = sec.querySelector(".rule-header");
+          if (header) header.setAttribute("aria-expanded", "true");
         });
       };
     }
     if (collapseBtn) {
       collapseBtn.onclick = () => {
-        document.querySelectorAll('.rule-section').forEach(sec => {
-          sec.classList.remove('expanded');
-          sec.classList.add('collapsed');
-          const header = sec.querySelector('.rule-header');
-          if (header) header.setAttribute('aria-expanded', 'false');
+        document.querySelectorAll(".rule-section").forEach(sec => {
+          sec.classList.remove("expanded");
+          sec.classList.add("collapsed");
+          const header = sec.querySelector(".rule-header");
+          if (header) header.setAttribute("aria-expanded", "false");
         });
       };
     }
@@ -1137,7 +1307,7 @@ class FlowScanner {
         <span class="issue-severity-compact ${result.severity}">${result.severity.toUpperCase()}</span>
         <span class="issue-details-compact">${affectedInfo}</span>
       </div>
-      ${showDivider ? '<div class="issue-divider"></div>' : ''}
+      ${showDivider ? '<div class="issue-divider"></div>' : ""}
     `;
   }
 
@@ -1168,12 +1338,12 @@ class FlowScanner {
   showError(message) {
     const container = document.getElementById("results-container");
     const resultsSection = document.getElementById("results-section");
-    
+
     // Show results section
     if (resultsSection) {
       resultsSection.style.display = "block";
     }
-    
+
     if (message.includes("No Flow Scanner rules are enabled")) {
       container.innerHTML = `
         <div class="empty-state">
@@ -1255,7 +1425,7 @@ class FlowScanner {
   }
 
   bindExportButton() {
-    const exportBtn = document.getElementById('export-button');
+    const exportBtn = document.getElementById("export-button");
     if (exportBtn) {
       exportBtn.onclick = () => this.handleExportClick();
     }
