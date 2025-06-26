@@ -74,6 +74,12 @@ class OptionsTabSelector extends React.Component {
       selectedTabId: initialTabId
     };
 
+    const ruleCheckboxes = (window.lightningflowscanner?.getRules() || []).map((rule) => ({
+      label: rule.label || rule.name,
+      name: rule.name,
+      checked: true
+    }));
+
     this.tabs = [
       {
         id: 1,
@@ -213,7 +219,18 @@ class OptionsTabSelector extends React.Component {
               ]
             }
           },
-          {option: Option, props: {type: "toggle", title: "Use legacy version", key: "useLegacyDlMetadata", default: false}},
+      {option: Option, props: {type: "toggle", title: "Use legacy version", key: "useLegacyDlMetadata", default: false}},
+        ]
+      },
+      {
+        id: 8,
+        tabTitle: "Tab7",
+        title: "Flow Scanner",
+        content: [
+          {option: MultiCheckboxButtonGroup,
+            props: {title: "Enabled Rules",
+              key: "flowScannerRules",
+              checkboxes: ruleCheckboxes}}
         ]
       }
     ];
