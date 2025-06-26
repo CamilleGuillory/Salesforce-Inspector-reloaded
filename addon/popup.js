@@ -1933,6 +1933,15 @@ class AllDataSelection extends React.PureComponent {
           ? h("a", {href: this.getGeneratePackageUrl(), target: linkTarget, className: "button page-button slds-button slds-button_neutral slds-m-top_xx-small slds-m-bottom_xx-small"}, "Generate package.xml") : null,
         flowDefinitionId
           ? h("a", {href: this.redirectToFlowVersions(), target: linkTarget, className: "button page-button slds-button slds-button_neutral slds-m-top_xx-small slds-m-bottom_xx-small"}, "Flow Versions") : null,
+        // Flow Scanner button
+        (flowDefinitionId && selectedValue.recordId)
+          ? h("a", {
+              href: `flow-scanner.html?host=${sfHost}&flowDefId=${flowDefinitionId}&flowId=${selectedValue.recordId}`,
+              target: linkTarget,
+              className: "button page-button slds-button slds-button_neutral slds-m-top_xx-small slds-m-bottom_xx-small"
+            },
+            "Flow Scanner"
+          ) : null,
         buttons.map((button, index) => h("div", {key: button + "Div"}, h("a",
           {
             key: button,
