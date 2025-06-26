@@ -524,7 +524,23 @@ class FlowScanner {
       console.log("Flow status:", flow.status);
 
       // Always re-read localStorage for the latest state before building ruleConfig
-      const stored = JSON.parse(localStorage.getItem("flowScannerRules") || "[]");
+      let storedRaw = localStorage.getItem("flowScannerRules");
+      let stored;
+      try {
+        stored = JSON.parse(storedRaw || "[]");
+      } catch (e) {
+        console.warn("Failed to parse flowScannerRules, resetting", e);
+        stored = [];
+      }
+
+      if (!Array.isArray(stored)) {
+        if (stored && typeof stored === "object") {
+          stored = Object.entries(stored).map(([name, checked]) => ({name, checked: !!checked}));
+        } else {
+          stored = [];
+        }
+      }
+
       const selected = stored.filter(c => c.checked).map(c => c.name);
       let ruleConfig;
       try {
