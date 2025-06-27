@@ -179,9 +179,6 @@ body {
   border-left: 3px solid #0070d2;
   padding: 4px 8px;
   margin: 0;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: initial;
   min-width: 120px;
   word-break: break-word;
 }
@@ -190,15 +187,17 @@ body {
 .flow-status-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
+  padding: 6px 16px;
+  border-radius: 16px;
+  font-size: 0.92rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
   background: #f8f9fa;
   color: #6c757d;
   border: 1px solid #dee2e6;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 
 .flow-status-badge.active {
@@ -214,6 +213,24 @@ body {
 }
 
 .flow-status-badge.inactive {
+  background: #f8d7da;
+  color: #721c24;
+  border-color: #f5c6cb;
+}
+
+.flow-status-badge.obsolete {
+  background: #f8d7da;
+  color: #721c24;
+  border-color: #f5c6cb;
+}
+
+.flow-status-badge.archived {
+  background: #e2e3e5;
+  color: #383d41;
+  border-color: #d6d8db;
+}
+
+.flow-status-badge.deprecated {
   background: #f8d7da;
   color: #721c24;
   border-color: #f5c6cb;
@@ -347,15 +364,15 @@ button:hover,
 
 /* Results Summary - Compact Stats */
 .results-summary {
-  padding: 16px 20px;
+  padding: 8px 12px;
   border-bottom: 1px solid #f1f3f4;
 }
 
 .summary-stats {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 16px 20px;
+  gap: 12px;
+  padding: 8px 12px;
   background: #f8f9fa;
   border-radius: 8px;
   border: 1px solid #e9ecef;
@@ -1939,9 +1956,6 @@ button.exporting::after {
   border-left: 3px solid #0070d2;
   padding: 4px 8px;
   margin: 0;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: initial;
   min-width: 120px;
   word-break: break-word;
 }
@@ -1965,6 +1979,8 @@ button.exporting::after {
   cursor: pointer;
   transition: all 0.2s ease;
   box-shadow: 0 1px 3px rgba(0, 112, 210, 0.3);
+  white-space: nowrap;
+  min-width: 110px;
 }
 
 .scan-button:hover {
@@ -1992,6 +2008,7 @@ button.exporting::after {
 
 .scan-text {
   font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Responsive adjustments */
@@ -2102,9 +2119,6 @@ button.exporting::after {
   border-left: 3px solid #0070d2;
   padding: 4px 8px;
   margin: 0;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: initial;
   min-width: 120px;
   word-break: break-word;
 }
@@ -2163,9 +2177,105 @@ button.exporting::after {
   border-left: 3px solid #0070d2;
   padding: 4px 8px;
   margin: 0;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: initial;
   min-width: 120px;
   word-break: break-word;
+}
+
+/* Other Flow Scanner Tools Section */
+.other-tools-section {
+  margin-bottom: 16px;
+}
+
+.other-tools-header {
+  margin-bottom: 12px;
+}
+
+.other-tools-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tools-icon {
+  font-size: 1.125rem;
+}
+
+.other-tools-card {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.other-tools-card p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #495057;
+  line-height: 1.5;
+}
+
+.other-tools-card a {
+  color: #0070d2;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.other-tools-card a:hover {
+  text-decoration: underline;
+  color: #005fb8;
+}
+
+.other-tools-card a:focus {
+  outline: 2px solid #0070d2;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Flow Scanner Note - Subtle attribution */
+.flow-scanner-note {
+  margin: 8px 0 16px 0;
+  text-align: center;
+}
+
+.flow-scanner-note p {
+  margin: 0;
+  color: #6c757d;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.flow-scanner-note a {
+  color: #0070d2;
+  text-decoration: none;
+}
+
+.flow-scanner-note a:hover {
+  text-decoration: underline;
+  color: #005fb8;
+}
+
+/* Flow Scanner Note in Header - Top Right */
+.flow-scanner-note-header {
+  margin-right: 12px;
+  color: #6c757d;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+}
+
+.flow-scanner-note-header a {
+  color: #0070d2;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.flow-scanner-note-header a:hover {
+  text-decoration: underline;
+  color: #005fb8;
 } 

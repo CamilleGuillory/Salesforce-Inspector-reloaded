@@ -395,6 +395,12 @@ class FlowScanner {
         statusBadge.classList.add("draft");
       } else if (statusLower === "inactive") {
         statusBadge.classList.add("inactive");
+      } else if (statusLower === "obsolete") {
+        statusBadge.classList.add("obsolete");
+      } else if (statusLower === "archived") {
+        statusBadge.classList.add("archived");
+      } else if (statusLower === "deprecated") {
+        statusBadge.classList.add("deprecated");
       }
     }
 
@@ -405,10 +411,13 @@ class FlowScanner {
 
     if (descriptionElement) {
       const description = flowInfo.xmlData?.description || "No description provided";
-      descriptionElement.textContent = description;
-      descriptionElement.style.whiteSpace = "nowrap";
-      descriptionElement.style.overflow = "hidden";
-      descriptionElement.style.textOverflow = "ellipsis";
+      // Replace newlines with <br> for HTML rendering
+      const htmlDescription = description.replace(/\n/g, "<br>");
+      descriptionElement.innerHTML = htmlDescription;
+      // Remove any truncation or single-line styles
+      descriptionElement.style.whiteSpace = "";
+      descriptionElement.style.overflow = "";
+      descriptionElement.style.textOverflow = "";
       if (!flowInfo.xmlData?.description) {
         descriptionElement.style.fontStyle = "italic";
         descriptionElement.style.color = "#6c757d";
