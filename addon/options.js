@@ -126,6 +126,7 @@ class OptionsTabSelector extends React.Component {
                 {label: "Org", name: "org"}
               ]}
           },
+          {option: Option, props: {type: "toggle", title: "Display Colored Banner on Flow Builder Page", key: "showFlowBuilderBanner", tooltip: "When enabled, displays a colored banner on the Flow Builder page."}},
         ]
       },
       {
@@ -447,7 +448,10 @@ class Option extends React.Component {
   onChangeToggle(e) {
     const enabled = e.target.checked;
     this.setState({[this.key]: enabled});
-    localStorage.setItem(this.key, JSON.stringify(enabled));
+    // Persist toggle via chrome.storage
+    if (this.key === 'hideFlowBuilderLoadingBox') {
+      chrome.storage.local.set({ hideFlowBuilderLoadingBox: JSON.stringify(enabled) });
+    }
   }
 
   onChange(e) {
