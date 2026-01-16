@@ -20,6 +20,89 @@ const MAX_QUERY_CHUNK_SIZE = 200;
 const FLOW_SCANNER_RULES_STORAGE_KEY = "flowScannerRules";
 const FLOW_SCANNER_HISTORY_SIZE_KEY = "flowScannerHistorySize";
 
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function inflateRaw(bytes) {
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("Metadata API prefilter requires DecompressionStream support in this browser.");
+  }
+  let ds;
+  try {
+    ds = new DecompressionStream("deflate-raw");
+  } catch {
+    ds = new DecompressionStream("deflate");
+  }
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  const ab = await new Response(stream).arrayBuffer();
+  return new Uint8Array(ab);
+}
+
+async function unzipBase64(zipBase64) {
+  const zipBytes = Uint8Array.from(atob(zipBase64), c => c.charCodeAt(0));
+  const view = new DataView(zipBytes.buffer, zipBytes.byteOffset, zipBytes.byteLength);
+
+  const EOCD_SIG = 0x06054b50;
+  const CEN_SIG = 0x02014b50;
+  const LOC_SIG = 0x04034b50;
+
+  const maxComment = 0xFFFF;
+  const minEocdSize = 22;
+  const start = Math.max(0, zipBytes.length - (minEocdSize + maxComment));
+  let eocdOffset = -1;
+  for (let i = zipBytes.length - minEocdSize; i >= start; i--) {
+    if (view.getUint32(i, true) === EOCD_SIG) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset < 0) {
+    throw new Error("Invalid ZIP: EOCD not found");
+  }
+
+  const centralDirSize = view.getUint32(eocdOffset + 12, true);
+  const centralDirOffset = view.getUint32(eocdOffset + 16, true);
+  let ptr = centralDirOffset;
+  const end = centralDirOffset + centralDirSize;
+  const decoder = new TextDecoder("utf-8");
+
+  const files = new Map();
+
+  while (ptr + 46 <= end) {
+    if (view.getUint32(ptr, true) !== CEN_SIG) {
+      break;
+    }
+    const compression = view.getUint16(ptr + 10, true);
+    const compressedSize = view.getUint32(ptr + 20, true);
+    const fileNameLen = view.getUint16(ptr + 28, true);
+    const extraLen = view.getUint16(ptr + 30, true);
+    const commentLen = view.getUint16(ptr + 32, true);
+    const localHeaderOffset = view.getUint32(ptr + 42, true);
+    const fileNameBytes = zipBytes.subarray(ptr + 46, ptr + 46 + fileNameLen);
+    const fileName = decoder.decode(fileNameBytes);
+
+    ptr += 46 + fileNameLen + extraLen + commentLen;
+
+    if (view.getUint32(localHeaderOffset, true) !== LOC_SIG) {
+      continue;
+    }
+    const lfNameLen = view.getUint16(localHeaderOffset + 26, true);
+    const lfExtraLen = view.getUint16(localHeaderOffset + 28, true);
+    const dataOffset = localHeaderOffset + 30 + lfNameLen + lfExtraLen;
+    const compData = zipBytes.subarray(dataOffset, dataOffset + compressedSize);
+
+    if (compression === 0) {
+      files.set(fileName, compData);
+    } else if (compression === 8) {
+      const inflated = await inflateRaw(compData);
+      files.set(fileName, inflated);
+    }
+  }
+
+  return files;
+}
+
 // Severity level mappings
 const SEVERITY_MAPPING = {
   ui: {
@@ -346,6 +429,544 @@ class FlowScanner {
       this.currentFlow = flowInfo;
     } catch (error) {
       this.setNoRulesEnabledMessage("Failed to load flow information: " + error.message);
+    }
+  }
+
+  /**
+   * Finds all flows that reference this flow as a subflow using Metadata API.
+   * Retrieves all Flow metadata as a ZIP, scans XML locally for subflow references.
+   * Returns ALL matching flows - filtering happens client-side in the UI.
+   *
+   * Scan modes:
+   * - fast: Metadata API only (current version only)
+   * - full-history: Tooling Composite scan across all versions (slower)
+   *
+   * @param {Function} onProgress - Optional callback for progress updates: (current, total, message) => void
+   * @param {string} scanMode - "fast" | "full-history"
+   * @returns {Promise<Array>} Array of flows that reference this subflow with their versions and states.
+   */
+  async findReferencingFlows(onProgress, scanMode = "fast") {
+    if (scanMode === "full-history") {
+      if (onProgress) {
+        onProgress(0, 0, "Preparing Full History Scan (Tooling Composite)...");
+      }
+      return this.findReferencingFlowsOLD(onProgress, false, null, true, false);
+    }
+
+    const currentFlowApiName = this.currentFlow?.apiName;
+    if (!currentFlowApiName) {
+      throw new Error("Current flow API name not available.");
+    }
+
+    try {
+      console.log("[Metadata API] Starting retrieve for all flows...");
+      console.log("[Metadata API] Searching for subflow:", currentFlowApiName);
+
+      // Step 1: Retrieve all Flow metadata via Metadata API
+      const metadataApi = sfConn.wsdl(apiVersion, "Metadata");
+      const retrieveRequest = {
+        apiVersion,
+        unpackaged: {
+          types: [{name: "Flow", members: ["*"]}]
+        }
+      };
+
+      const retrieveRes = await sfConn.soap(metadataApi, "retrieve", {retrieveRequest});
+      console.log("[Metadata API] Retrieve started, ID:", retrieveRes.id);
+      if (onProgress) onProgress(0, 0, "Retrieve request submitted...");
+
+      // Step 2: Poll for completion
+      let statusRes;
+      const startTime = Date.now();
+      for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        if (onProgress) onProgress(0, 0, `Waiting for server to package flows... (${elapsed}s)`);
+        statusRes = await sfConn.soap(metadataApi, "checkRetrieveStatus", {id: retrieveRes.id});
+        if (statusRes.done !== "false") break;
+      }
+
+      if (statusRes.success !== "true") {
+        console.error("[Metadata API] Retrieve failed:", statusRes);
+        const err = new Error("Metadata API retrieve failed");
+        err.result = statusRes;
+        throw err;
+      }
+
+      console.log("[Metadata API] Retrieve succeeded, unzipping...");
+      if (onProgress) onProgress(0, 0, "Unzipping metadata...");
+
+      // Step 3: Unzip and parse
+      const files = await unzipBase64(statusRes.zipFile);
+      console.log("[Metadata API] Unzipped", files.size, "files");
+      if (onProgress) onProgress(0, 0, "Scanning flow files...");
+
+      const allPaths = Array.from(files.keys());
+      console.log("[Metadata API] Sample paths:", allPaths.slice(0, 10));
+
+      // Step 4: Scan all flow XML files for subflow references
+      const flowNameRegex = new RegExp(`<flowName>${escapeRegex(currentFlowApiName)}</flowName>`);
+      const statusRegex = /<status>(\w+)<\/status>/;
+      const versionNumberRegex = /<processMetadataValues>[\s\S]*?<name>VersionNumber<\/name>[\s\S]*?<value>[\s\S]*?<numberValue>(\d+)<\/numberValue>/;
+      const labelRegex = /<label>(.*?)<\/label>/;
+
+      console.log("[Metadata API] Searching for subflow:", currentFlowApiName);
+
+      const td = new TextDecoder("utf-8");
+      const referencingFlows = [];
+      let scannedCount = 0;
+      let matchCount = 0;
+
+      for (const [path, bytes] of files.entries()) {
+        if (!path.endsWith(".flow-meta.xml") && !path.endsWith(".flow")) continue;
+
+        scannedCount++;
+        const xml = td.decode(bytes);
+
+        if (scannedCount <= 2) {
+          console.log("[Metadata API] Sample XML from", path, ":", xml.substring(0, 500));
+        }
+
+        // Check if this flow references our subflow
+        if (!flowNameRegex.test(xml)) continue;
+
+        matchCount++;
+        const baseName = path.split("/").pop();
+        const apiName = baseName.replace(/\.flow-meta\.xml$/i, "").replace(/\.flow$/i, "");
+
+        // Skip self-reference
+        if (apiName === currentFlowApiName) continue;
+
+        // Extract metadata from XML
+        const statusMatch = xml.match(statusRegex);
+        const status = statusMatch ? statusMatch[1] : "Unknown";
+
+        const versionMatch = xml.match(versionNumberRegex);
+        const versionNumber = versionMatch ? parseInt(versionMatch[1], 10) : 0;
+
+        const labelMatch = xml.match(labelRegex);
+        const label = labelMatch ? labelMatch[1] : apiName;
+
+        console.log("[Metadata API] MATCH #" + matchCount, ":", {apiName, status, versionNumber, label});
+
+        referencingFlows.push({
+          apiName,
+          label,
+          versionNumber,
+          status,
+          isActiveVersion: status === "Active",
+          isLatestVersion: false,
+          flowId: null,
+          definitionId: null
+        });
+      }
+
+      console.log("[Metadata API] Scanned", scannedCount, "flow files, found", matchCount, "matches (all statuses)");
+
+      // Sort by label, then by version number descending
+      referencingFlows.sort((a, b) => {
+        const labelCompare = a.label.localeCompare(b.label);
+        if (labelCompare !== 0) return labelCompare;
+        return b.versionNumber - a.versionNumber;
+      });
+
+      if (onProgress) onProgress(referencingFlows.length, referencingFlows.length, "Scan complete");
+
+      return referencingFlows;
+    } catch (error) {
+      const enhancedError = new Error(`Failed to find referencing flows: ${error.message}`);
+      enhancedError.cause = error;
+      enhancedError.stack = error.stack;
+      throw enhancedError;
+    }
+  }
+
+  /**
+   * OLD IMPLEMENTATION - REPLACED WITH METADATA API ONLY
+   * Keeping this comment for reference in case rollback is needed
+   */
+  async findReferencingFlowsOLD(onProgress, activeOnly = false, onCompositeStatus, includeInactiveVersions = false, useMetadataPrefilter = false) {
+    const currentFlowApiName = this.currentFlow?.apiName;
+    if (!currentFlowApiName) {
+      throw new Error("Current flow API name not available.");
+    }
+
+    try {
+      const flowDefMap = new Map(); // Map flowId -> flowDefinition info
+
+      // Helper to validate Salesforce IDs (15 or 18 alphanumeric characters)
+      const isValidSalesforceId = (id) => id && /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/.test(id);
+      const normalizeId = (id) => (id ? id.substring(0, 15) : id);
+
+      const queryAll = async (soql, isTooling) => {
+        const records = [];
+        let res = await sfConn.rest(this._buildApiUrl(`/query?q=${encodeURIComponent(soql)}`, isTooling));
+        if (res.records) records.push(...res.records);
+        while (res && !res.done && res.nextRecordsUrl) {
+          res = await sfConn.rest(res.nextRecordsUrl);
+          if (res.records) records.push(...res.records);
+        }
+        return records;
+      };
+
+      const shouldExcludeFlowDefinition = (fdv) => {
+        const processType = (fdv.ProcessType || "").toLowerCase();
+        const triggerType = (fdv.TriggerType || "").toLowerCase();
+
+        // Record-Triggered Flow (Before-Save / Fast Field Updates)
+        // Platform Event-Triggered Flow
+        // Recommendation Strategy Flow (Next Best Action)
+        // User Provisioning Flows
+        return triggerType === "recordbeforesave"
+          || triggerType === "platformevent"
+          || processType === "strategy"
+          || processType === "userprovisioning";
+      };
+
+      let prefilteredApiNames = null;
+      if (useMetadataPrefilter) {
+        console.log("[Metadata Prefilter] Starting retrieve for all flows...");
+        const metadataApi = sfConn.wsdl(apiVersion, "Metadata");
+        const retrieveRequest = {
+          apiVersion,
+          unpackaged: {
+            types: [{name: "Flow", members: ["*"]}]
+          }
+        };
+
+        const retrieveRes = await sfConn.soap(metadataApi, "retrieve", {retrieveRequest});
+        console.log("[Metadata Prefilter] Retrieve started, ID:", retrieveRes.id);
+        let statusRes;
+        for (;;) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          statusRes = await sfConn.soap(metadataApi, "checkRetrieveStatus", {id: retrieveRes.id});
+          if (statusRes.done !== "false") break;
+        }
+
+        if (statusRes.success !== "true") {
+          console.error("[Metadata Prefilter] Retrieve failed:", statusRes);
+          let err = new Error("Metadata API retrieve failed");
+          err.result = statusRes;
+          throw err;
+        }
+
+        console.log("[Metadata Prefilter] Retrieve succeeded, unzipping...");
+        const files = await unzipBase64(statusRes.zipFile);
+        console.log("[Metadata Prefilter] Unzipped", files.size, "files");
+
+        const allPaths = Array.from(files.keys());
+        console.log("[Metadata Prefilter] Sample paths:", allPaths.slice(0, 10));
+        const flowFiles = allPaths.filter(p => p.endsWith(".flow-meta.xml") || p.endsWith(".flow"));
+        console.log("[Metadata Prefilter] Found", flowFiles.length, "flow files:", flowFiles.slice(0, 5));
+
+        const candidates = new Set();
+        const flowNameRegex = new RegExp(`<flowName>${escapeRegex(currentFlowApiName)}</flowName>`);
+        console.log("[Metadata Prefilter] Searching for subflow:", currentFlowApiName, "with regex:", flowNameRegex);
+        const td = new TextDecoder("utf-8");
+        let scannedCount = 0;
+        for (const [path, bytes] of files.entries()) {
+          if (!path.endsWith(".flow-meta.xml") && !path.endsWith(".flow")) continue;
+          scannedCount++;
+          const xml = td.decode(bytes);
+          if (scannedCount <= 2) {
+            console.log("[Metadata Prefilter] Sample XML from", path, ":", xml.substring(0, 500));
+          }
+          if (flowNameRegex.test(xml)) {
+            const baseName = path.split("/").pop();
+            const apiName = baseName.replace(/\.flow-meta\.xml$/i, "").replace(/\.flow$/i, "");
+            console.log("[Metadata Prefilter] MATCH found in", path, "-> API name:", apiName);
+            if (apiName) candidates.add(apiName);
+          }
+        }
+        console.log("[Metadata Prefilter] Scanned", scannedCount, "flow files, found", candidates.size, "candidates:", Array.from(candidates));
+        prefilteredApiNames = Array.from(candidates);
+        if (prefilteredApiNames.length === 0) {
+          console.warn("[Metadata Prefilter] No candidates found, returning empty result");
+          return [];
+        }
+      }
+
+      let flowDefinitions;
+      if (prefilteredApiNames) {
+        flowDefinitions = [];
+        for (const chunk of this._chunk(prefilteredApiNames, MAX_QUERY_CHUNK_SIZE)) {
+          const namesStr = chunk.map(n => `'${n.replace(/'/g, "''")}'`).join(",");
+          const soql = `SELECT DurableId, ApiName, Label, ProcessType, TriggerType, ActiveVersionId, LatestVersionId FROM FlowDefinitionView WHERE ApiName IN (${namesStr}) ORDER BY Label`;
+          const records = await queryAll(soql, false);
+          flowDefinitions.push(...records);
+        }
+      } else {
+        flowDefinitions = await queryAll(
+          "SELECT DurableId, ApiName, Label, ProcessType, TriggerType, ActiveVersionId, LatestVersionId FROM FlowDefinitionView ORDER BY Label",
+          false
+        );
+      }
+
+      if (!flowDefinitions || flowDefinitions.length === 0) {
+        return [];
+      }
+
+      const definitionIdToFdv = new Map();
+      const activeFlowIds = [];
+      const activeAndLatestFlowIds = [];
+
+      for (const fdv of flowDefinitions) {
+        if (fdv.ApiName === currentFlowApiName) continue;
+        if (shouldExcludeFlowDefinition(fdv)) continue;
+
+        if (isValidSalesforceId(fdv.DurableId)) {
+          definitionIdToFdv.set(normalizeId(fdv.DurableId), fdv);
+        }
+        if (isValidSalesforceId(fdv.ActiveVersionId)) {
+          activeFlowIds.push(normalizeId(fdv.ActiveVersionId));
+        }
+
+        if (!activeOnly) {
+          const activeId = isValidSalesforceId(fdv.ActiveVersionId) ? normalizeId(fdv.ActiveVersionId) : null;
+          const latestId = isValidSalesforceId(fdv.LatestVersionId) ? normalizeId(fdv.LatestVersionId) : null;
+          if (activeId) {
+            activeAndLatestFlowIds.push(activeId);
+            flowDefMap.set(activeId, {...fdv, isActive: true, isLatest: latestId === activeId});
+          }
+          if (latestId && latestId !== activeId) {
+            activeAndLatestFlowIds.push(latestId);
+            flowDefMap.set(latestId, {...fdv, isActive: false, isLatest: true});
+          }
+        }
+      }
+
+      const flowIds = [];
+
+      if (activeOnly) {
+        const seen = new Set();
+        for (const id of activeFlowIds) {
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          const fdv = flowDefinitions.find(r => normalizeId(r.ActiveVersionId) === id);
+          flowDefMap.set(id, {...fdv, isActive: true, isLatest: normalizeId(fdv?.LatestVersionId) === id});
+          flowIds.push(id);
+        }
+      } else if (!includeInactiveVersions) {
+        const seen = new Set();
+        for (const id of activeAndLatestFlowIds) {
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          flowIds.push(id);
+        }
+      } else {
+        const definitionIds = Array.from(definitionIdToFdv.keys());
+        const allVersionFlowIds = [];
+        const defIdChunks = this._chunk(definitionIds, MAX_QUERY_CHUNK_SIZE);
+        for (const defChunk of defIdChunks) {
+          const idsStr = defChunk.map(id => `'${id}'`).join(",");
+          const soql = `SELECT Id, DefinitionId FROM Flow WHERE DefinitionId IN (${idsStr})`;
+          const versionRecords = await queryAll(soql, true);
+          for (const rec of versionRecords) {
+            const flowId = normalizeId(rec.Id);
+            const defId = normalizeId(rec.DefinitionId);
+            const fdv = definitionIdToFdv.get(defId);
+            if (!fdv || !flowId) continue;
+            allVersionFlowIds.push(flowId);
+            flowDefMap.set(flowId, {
+              ...fdv,
+              isActive: normalizeId(fdv.ActiveVersionId) === flowId,
+              isLatest: normalizeId(fdv.LatestVersionId) === flowId
+            });
+          }
+        }
+
+        const seen = new Set();
+        for (const id of activeAndLatestFlowIds) {
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          flowIds.push(id);
+        }
+        for (const id of allVersionFlowIds) {
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          flowIds.push(id);
+        }
+      }
+
+      if (flowIds.length === 0) {
+        if (onProgress) onProgress(0, 0, "No flow versions to scan");
+        return [];
+      }
+
+      // Query flow metadata using Composite API (Metadata field requires single-row queries)
+      const referencingFlows = [];
+      const flowIdChunks = this._chunk(flowIds, MAX_COMPOSITE_BATCH_SIZE);
+      const totalFlows = flowIds.length;
+      let processedFlows = 0;
+
+      const statusCountsAll = Object.create(null);
+      const statusCountsMatched = Object.create(null);
+      const normalizeStatus = (s) => s || "Unknown";
+      const inc = (m, k) => {
+        m[k] = (m[k] || 0) + 1;
+      };
+      const formatStatusCounts = (m) => {
+        const ordered = ["Active", "Draft", "Obsolete", "InvalidDraft", "Unknown"];
+        const parts = [];
+        for (const key of ordered) {
+          if (m[key]) parts.push(`${key}:${m[key]}`);
+        }
+        for (const [k, v] of Object.entries(m)) {
+          if (ordered.includes(k)) continue;
+          parts.push(`${k}:${v}`);
+        }
+        return parts.join(" ");
+      };
+
+      // Report initial progress
+      if (onProgress) onProgress(0, totalFlows, `Scanning flow versions via Tooling Composite API... (0/${totalFlows})`);
+
+      const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+      const maxRetries = 2;
+
+      for (let batchIndex = 0; batchIndex < flowIdChunks.length; batchIndex++) {
+        const originalChunkIds = flowIdChunks[batchIndex];
+        const batchNumber = batchIndex + 1;
+        const batchTotal = flowIdChunks.length;
+
+        let remainingIds = originalChunkIds.slice();
+        let attempt = 0;
+        let finalFailures = [];
+
+        while (remainingIds.length > 0 && attempt <= maxRetries) {
+          const attemptIds = remainingIds;
+          remainingIds = [];
+          const attemptNumber = attempt + 1;
+
+          let compositeRes;
+          let requestError = null;
+          try {
+            const compositeRequest = attemptIds.map((flowId, idx) => ({
+              method: "GET",
+              url: this._buildApiUrl(`/sobjects/Flow/${flowId}?fields=Id,DefinitionId,VersionNumber,Status,Metadata`, true),
+              referenceId: `flow_${batchNumber}_${attemptNumber}_${idx}`
+            }));
+
+            compositeRes = await sfConn.rest(this._buildApiUrl("/composite", true), {
+              method: "POST",
+              body: {allOrNone: false, compositeRequest}
+            });
+          } catch (e) {
+            requestError = e;
+          }
+
+          let succeeded = 0;
+          let failed = 0;
+          const errors = [];
+
+          if (!requestError && compositeRes?.compositeResponse) {
+            for (let i = 0; i < compositeRes.compositeResponse.length; i++) {
+              const subRes = compositeRes.compositeResponse[i];
+              const flowId = attemptIds[i];
+
+              if (!subRes || subRes.httpStatusCode < 200 || subRes.httpStatusCode >= 300) {
+                failed++;
+                remainingIds.push(flowId);
+                const msg = subRes?.body?.[0]?.message || subRes?.body?.message || `HTTP ${subRes?.httpStatusCode || ""}`;
+                errors.push(msg);
+                continue;
+              }
+
+              succeeded++;
+              const flowRecord = subRes.body;
+              if (!flowRecord) continue;
+
+              const flowStatus = normalizeStatus(flowRecord.Status);
+              inc(statusCountsAll, flowStatus);
+
+              const metadata = flowRecord.Metadata;
+              if (!metadata) continue;
+
+              const subflows = metadata.subflows;
+              if (!subflows) continue;
+
+              const subflowArray = Array.isArray(subflows) ? subflows : [subflows];
+              const referencesCurrentFlow = subflowArray.some(sf => sf.flowName === currentFlowApiName);
+
+              if (referencesCurrentFlow) {
+                const fdvInfo = flowDefMap.get(normalizeId(flowRecord.Id));
+                inc(statusCountsMatched, flowStatus);
+                referencingFlows.push({
+                  flowId: flowRecord.Id,
+                  definitionId: flowRecord.DefinitionId,
+                  apiName: fdvInfo?.ApiName || "Unknown",
+                  label: fdvInfo?.Label || "Unknown",
+                  versionNumber: flowRecord.VersionNumber,
+                  status: flowRecord.Status,
+                  isActiveVersion: fdvInfo?.isActive || false,
+                  isLatestVersion: fdvInfo?.isLatest || flowRecord.Status === "Active"
+                });
+              }
+            }
+          } else {
+            failed = attemptIds.length;
+            remainingIds = attemptIds.slice();
+            errors.push(requestError?.message || "Composite request failed");
+          }
+
+          if (onCompositeStatus) {
+            onCompositeStatus({
+              batchNumber,
+              batchTotal,
+              attempt: attemptNumber,
+              maxRetries: maxRetries + 1,
+              total: attemptIds.length,
+              succeeded,
+              failed,
+              errors: errors.slice(0, 3)
+            });
+          }
+
+          finalFailures = remainingIds.slice();
+          if (remainingIds.length > 0 && attempt < maxRetries) {
+            await sleep(250 * Math.pow(2, attempt));
+          }
+          attempt++;
+        }
+
+        processedFlows += originalChunkIds.length;
+        if (onProgress) {
+          const statusSummary = formatStatusCounts(statusCountsAll);
+          const matchedSummary = formatStatusCounts(statusCountsMatched);
+          const msg = `Scanning flow versions via Tooling Composite API... (${processedFlows}/${totalFlows})`
+            + (statusSummary ? ` | Seen: ${statusSummary}` : "")
+            + (referencingFlows.length ? ` | Matches: ${referencingFlows.length}` : "")
+            + (matchedSummary ? ` (by status: ${matchedSummary})` : "");
+          onProgress(processedFlows, totalFlows, msg);
+        }
+
+        if (finalFailures.length > 0 && onCompositeStatus) {
+          onCompositeStatus({
+            batchNumber,
+            batchTotal,
+            attempt: "final",
+            maxRetries: maxRetries + 1,
+            total: originalChunkIds.length,
+            succeeded: originalChunkIds.length - finalFailures.length,
+            failed: finalFailures.length,
+            errors: ["Some requests failed after retries"]
+          });
+        }
+      }
+
+      // Sort by label, then by version number descending
+      referencingFlows.sort((a, b) => {
+        const labelCompare = a.label.localeCompare(b.label);
+        if (labelCompare !== 0) return labelCompare;
+        return b.versionNumber - a.versionNumber;
+      });
+
+      return referencingFlows;
+    } catch (error) {
+      const enhancedError = new Error(`Failed to find referencing flows: ${error.message}`);
+      enhancedError.cause = error;
+      enhancedError.stack = error.stack;
+      throw enhancedError;
     }
   }
 
@@ -1220,8 +1841,226 @@ function calculateVersionCountStyle(totalVersions) {
   return style;
 }
 
+function WhereUsedModal(props) {
+  const {isOpen, onClose, onSearch, referencingFlows, isLoading, error, sfHost, progress, hasSearched, filterMode, onFilterModeChange, scanMode, onScanModeChange, versionScope, onVersionScopeChange, statusFilters, onStatusFilterToggle} = props;
+
+  const normalizedStatus = (status) => status || "Unknown";
+  const statusOrder = ["Active", "Draft", "Obsolete", "InvalidDraft", "Unknown"];
+  const statusCounts = referencingFlows.reduce((acc, flow) => {
+    const s = normalizedStatus(flow.status);
+    acc[s] = (acc[s] || 0) + 1;
+    return acc;
+  }, {});
+
+  // Client-side filtering based on filterMode
+  const filteredFlows = referencingFlows.filter(flow => {
+    const st = normalizedStatus(flow.status);
+    if (scanMode === "full-history" && statusFilters) {
+      if (statusFilters[st] === false) return false;
+      if (statusFilters[st] === undefined) {
+        if (statusFilters.Unknown === false) return false;
+      }
+    }
+
+    if (scanMode === "full-history") {
+      if (versionScope === "active-only") {
+        if (!flow.isActiveVersion) return false;
+      } else if (versionScope === "active-latest") {
+        if (!flow.isActiveVersion && !flow.isLatestVersion) return false;
+      }
+    }
+
+    if (filterMode === "active-only") {
+      return flow.status === "Active";
+    } else if (filterMode === "active-draft") {
+      return flow.status === "Active" || flow.status === "Draft";
+    }
+    // "all" mode - return everything
+    return true;
+  });
+
+  const openFlowInBuilder = (flowId, definitionId) => {
+    const url = `https://${sfHost}/builder_platform_interaction/flowBuilder.app?flowId=${flowId}&flowDefId=${definitionId}`;
+    window.open(url, "_blank");
+  };
+
+  const progressPercent = progress && progress.total > 0
+    ? Math.round((progress.current / progress.total) * 100)
+    : 0;
+
+
+  return h(ConfirmModal, {
+    isOpen,
+    title: "Where Is This Flow Used?",
+    onConfirm: onClose,
+    confirmLabel: "Close",
+    confirmVariant: "neutral",
+    confirmType: "button"
+  },
+  !hasSearched && !isLoading
+    ? h("div", {className: "slds-p-around_medium"},
+      h("div", {className: "slds-text-body_regular slds-m-bottom_medium"},
+        scanMode === "full-history"
+          ? "Full History Scan uses the Tooling Composite API to scan all versions of flows (slower, most complete)."
+          : "Fast Scan uses the Metadata API to retrieve one definition per flow (typically Active or latest) and scans locally in your browser."
+      ),
+      h("div", {className: "slds-form-element slds-m-bottom_medium"},
+        h("label", {className: "slds-form-element__label", htmlFor: "where-used-scan-mode"}, "Scan mode"),
+        h("div", {className: "slds-form-element__control"},
+          h("div", {className: "slds-select_container"},
+            h("select", {
+              id: "where-used-scan-mode",
+              className: "slds-select",
+              value: scanMode,
+              onChange: onScanModeChange
+            },
+            h("option", {value: "fast"}, "Fast Scan (Current Version Only)"),
+            h("option", {value: "full-history"}, "Full History Scan (All Versions)"))
+          )
+        )
+      ),
+      h("div", {className: "slds-text-align_center"},
+        h("button", {
+          className: "slds-button slds-button_brand",
+          onClick: onSearch
+        }, "Start Scan")
+      )
+    )
+    : isLoading
+      ? h("div", {className: "slds-p-around_medium"},
+        h("div", {className: "slds-text-align_center slds-m-bottom_small"},
+          progress && progress.message
+            ? progress.message
+            : scanMode === "full-history"
+              ? "Scanning flow versions via Tooling Composite API..."
+              : "Retrieving Flow metadata via Metadata API..."
+        ),
+        progress && progress.total > 0
+          ? h("div", {className: "slds-progress-bar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": progressPercent, role: "progressbar"},
+            h("span", {className: "slds-progress-bar__value", style: {width: `${progressPercent}%`}})
+          )
+          : h("div", {className: "slds-progress-bar"},
+            h("div", {className: "slds-progress-bar__value slds-progress-bar__value_indeterminate", style: {width: "100%"}})
+          ),
+        progress && progress.total > 0 && h("div", {className: "slds-text-align_center slds-m-top_small slds-text-color_weak"},
+          progress.message || "Scan complete"
+        )
+      )
+      : error
+        ? h("div", {className: "slds-text-color_error"}, error)
+        : referencingFlows && referencingFlows.length > 0
+          ? h("div", {className: "where-used-results"},
+            h("div", {className: "slds-p-around_small slds-border_bottom"},
+              h("div", {className: "slds-grid slds-grid_vertical-align-center"},
+                h("div", {className: "slds-col"},
+                  h("p", {className: "slds-text-heading_small"},
+                    `Found ${referencingFlows.length} flow${referencingFlows.length === 1 ? "" : "s"} (showing ${filteredFlows.length})`
+                  )
+                ),
+                h("div", {className: "slds-col_bump-left"},
+                  h("div", {className: "slds-form-element"},
+                    h("div", {className: "slds-form-element__control"},
+                      scanMode === "full-history"
+                        ? h("div", {className: "slds-grid slds-wrap", style: {gap: "0.5rem", justifyContent: "flex-end"}},
+                          statusOrder.map(s => h("label", {key: s, className: "slds-checkbox"},
+                            h("input", {
+                              type: "checkbox",
+                              checked: !!statusFilters?.[s],
+                              onChange: () => onStatusFilterToggle && onStatusFilterToggle(s)
+                            }),
+                            h("span", {className: "slds-checkbox_faux"}),
+                            h("span", {className: "slds-form-element__label"}, `${s} (${statusCounts[s] || 0})`)
+                          ))
+                        )
+                        : h("div", {className: "slds-select_container"},
+                          h("select", {
+                            className: "slds-select",
+                            value: filterMode,
+                            onChange: onFilterModeChange,
+                            title: "Filter status"
+                          },
+                          h("option", {value: "active-only"}, "Active only"),
+                          h("option", {value: "active-draft"}, "Active + Draft"),
+                          h("option", {value: "all"}, "All statuses")
+                          )
+                        )
+                    )
+                  )
+                )
+              )
+            ),
+            scanMode === "full-history" && h("div", {className: "slds-p-around_small slds-border_bottom"},
+              h("div", {className: "slds-form-element"},
+                h("label", {className: "slds-form-element__label", htmlFor: "where-used-version-scope"}, "Version scope"),
+                h("div", {className: "slds-form-element__control"},
+                  h("div", {className: "slds-select_container"},
+                    h("select", {
+                      id: "where-used-version-scope",
+                      className: "slds-select",
+                      value: versionScope,
+                      onChange: onVersionScopeChange
+                    },
+                    h("option", {value: "active-latest"}, "Active + Latest"),
+                    h("option", {value: "active-only"}, "Active only"),
+                    h("option", {value: "all"}, "All versions")
+                    )
+                  )
+                )
+              )
+            ),
+            h("div", {style: {maxHeight: "400px", overflowY: "auto"}},
+              h("table", {className: "slds-table slds-table_cell-buffer slds-table_bordered"},
+                h("thead", {},
+                  h("tr", {className: "slds-line-height_reset"},
+                    h("th", {scope: "col"}, h("div", {className: "slds-truncate", title: "Flow Label"}, "Flow Label")),
+                    h("th", {scope: "col"}, h("div", {className: "slds-truncate", title: "API Name"}, "API Name")),
+                    h("th", {scope: "col"}, h("div", {className: "slds-truncate slds-text-align_center", title: "Version"}, "Version")),
+                    h("th", {scope: "col"}, h("div", {className: "slds-truncate slds-text-align_center", title: "Status"}, "Status")),
+                    h("th", {scope: "col"}, h("div", {className: "slds-truncate slds-text-align_center", title: "Action"}, "Action"))
+                  )
+                ),
+                h("tbody", {},
+                  filteredFlows.map((flow, idx) =>
+                    h("tr", {key: `${flow.apiName}-${flow.versionNumber}-${flow.flowId || "noid"}-${idx}`},
+                      h("td", {}, h("div", {className: "slds-truncate", title: flow.label}, flow.label)),
+                      h("td", {}, h("div", {className: "slds-truncate", title: flow.apiName, style: {fontFamily: "monospace", fontSize: "0.85em"}}, flow.apiName)),
+                      h("td", {}, h("div", {className: "slds-truncate slds-text-align_center"}, flow.versionNumber)),
+                      h("td", {}, h("div", {className: "slds-truncate slds-text-align_center"},
+                        h("span", {
+                          className: `flow-status-badge ${flow.status?.toLowerCase()}`,
+                          role: "status",
+                          "aria-live": "polite"
+                        }, flow.status)
+                      )),
+                      h("td", {className: "slds-text-align_center"},
+                        h("button", {
+                          className: "slds-button slds-button_icon slds-button_icon-border-filled",
+                          title: flow.flowId && flow.definitionId ? "Open in Flow Builder" : "Flow IDs not available in Fast Scan",
+                          disabled: !(flow.flowId && flow.definitionId),
+                          onClick: () => openFlowInBuilder(flow.flowId, flow.definitionId)
+                        },
+                        h("svg", {className: "slds-button__icon", "aria-hidden": "true"},
+                          h("use", {xlinkHref: "symbols.svg#new_window"})
+                        )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+          : h("div", {className: "slds-align_absolute-center slds-p-around_medium"},
+            h("div", {className: "slds-text-align_center"},
+              h("div", {style: {fontSize: "2rem", marginBottom: "0.5rem"}}, "✅"),
+              h("p", {}, "This flow is not used as a subflow by any other flow.")
+            )
+          )
+  );
+}
+
 function FlowInfoSection(props) {
-  const {flow, elements, onPurgeVersions, onToggleDescription, handleMouseDown, shouldIgnoreClick} = props;
+  const {flow, elements, onPurgeVersions, onWhereUsed, onToggleDescription, handleMouseDown, shouldIgnoreClick} = props;
 
   if (!flow) {
     return h("div", {className: "area"},
@@ -1242,9 +2081,21 @@ function FlowInfoSection(props) {
 
   return h("div", {className: "area"},
     h("div", {className: "flow-info-section", role: "region", "aria-labelledby": "flow-info-title-text"},
-      h("h2", {className: "flow-info-title"},
-        h("span", {className: "flow-icon", "aria-hidden": "true"}, "⚡"),
-        h("span", {className: "flow-info-title-text", id: "flow-info-title-text"}, "Flow Information")
+      h("h2", {className: "flow-info-title", style: {display: "flex", alignItems: "center", justifyContent: "space-between"}},
+        h("span", {style: {display: "flex", alignItems: "center"}},
+          h("span", {className: "flow-icon", "aria-hidden": "true"}, "⚡"),
+          h("span", {className: "flow-info-title-text", id: "flow-info-title-text"}, "Flow Information")
+        ),
+        h("button", {
+          className: "slds-button slds-button_neutral slds-button_small",
+          onClick: onWhereUsed,
+          title: "Find flows that use this flow as a subflow"
+        },
+        h("svg", {className: "slds-button__icon slds-button__icon_left", "aria-hidden": "true"},
+          h("use", {xlinkHref: "symbols.svg#search"})
+        ),
+        "Where Is It Used?"
+        )
       ),
       h("div", {className: "flow-info-card compact"},
         h("div", {className: "flow-header-row"},
@@ -1537,7 +2388,23 @@ class App extends React.Component {
       showAgentforceModal: false,
       agentforcePrompt: "",
       agentforceAnalysis: "",
-      agentforceError: null
+      agentforceError: null,
+      showWhereUsedModal: false,
+      whereUsedLoading: false,
+      whereUsedError: null,
+      referencingFlows: [],
+      whereUsedProgress: {current: 0, total: 0, message: ""},
+      whereUsedHasSearched: false,
+      whereUsedFilterMode: "active-draft",
+      whereUsedScanMode: "fast",
+      whereUsedVersionScope: "active-latest",
+      whereUsedStatusFilters: {
+        Active: true,
+        Draft: true,
+        Obsolete: false,
+        InvalidDraft: false,
+        Unknown: false
+      }
     };
     this.onToggleHelp = this.onToggleHelp.bind(this);
     this.onToggleAgentforce = this.onToggleAgentforce.bind(this);
@@ -1558,6 +2425,13 @@ class App extends React.Component {
     this.closePurgeResult = this.closePurgeResult.bind(this);
     this.retryAfterError = this.retryAfterError.bind(this);
     this.computePurgeState = this.computePurgeState.bind(this);
+    this.onWhereUsed = this.onWhereUsed.bind(this);
+    this.onWhereUsedClose = this.onWhereUsedClose.bind(this);
+    this.onWhereUsedSearch = this.onWhereUsedSearch.bind(this);
+    this.onWhereUsedFilterModeChange = this.onWhereUsedFilterModeChange.bind(this);
+    this.onWhereUsedScanModeChange = this.onWhereUsedScanModeChange.bind(this);
+    this.onWhereUsedVersionScopeChange = this.onWhereUsedVersionScopeChange.bind(this);
+    this.onWhereUsedStatusFilterToggle = this.onWhereUsedStatusFilterToggle.bind(this);
   }
 
   componentDidMount() {
@@ -1990,6 +2864,75 @@ class App extends React.Component {
     this.setState({showPurgeModal: false});
   }
 
+  onWhereUsed() {
+    this.setState({
+      showWhereUsedModal: true,
+      referencingFlows: [],
+      whereUsedProgress: {current: 0, total: 0, message: ""},
+      whereUsedHasSearched: false
+    });
+  }
+
+  async onWhereUsedSearch() {
+    this.setState({
+      whereUsedLoading: true,
+      whereUsedError: null,
+      referencingFlows: [],
+      whereUsedProgress: {current: 0, total: 0, message: ""},
+      whereUsedHasSearched: true
+    });
+
+    try {
+      const onProgress = (current, total, message = "") => {
+        this.setState({whereUsedProgress: {current, total, message}});
+      };
+
+      const referencingFlows = await this.flowScanner.findReferencingFlows(onProgress, this.state.whereUsedScanMode);
+      this.setState({
+        whereUsedLoading: false,
+        referencingFlows
+      });
+    } catch (error) {
+      this.setState({
+        whereUsedLoading: false,
+        whereUsedError: error.message
+      });
+    }
+  }
+
+  onWhereUsedFilterModeChange(e) {
+    const value = e.target.value;
+    this.setState({whereUsedFilterMode: value});
+  }
+
+  onWhereUsedScanModeChange(e) {
+    const value = e.target.value;
+    this.setState({whereUsedScanMode: value});
+  }
+
+  onWhereUsedVersionScopeChange(e) {
+    const value = e.target.value;
+    this.setState({whereUsedVersionScope: value});
+  }
+
+  onWhereUsedStatusFilterToggle(status) {
+    this.setState(prev => ({
+      whereUsedStatusFilters: {
+        ...prev.whereUsedStatusFilters,
+        [status]: !prev.whereUsedStatusFilters?.[status]
+      }
+    }));
+  }
+
+  onWhereUsedClose() {
+    this.setState({
+      showWhereUsedModal: false,
+      whereUsedLoading: false,
+      whereUsedError: null,
+      referencingFlows: []
+    });
+  }
+
   renderPurgeResultModal() {
     if (!this.state.showPurgeResultModal || !this.state.purgeResult) return null;
 
@@ -2054,6 +2997,7 @@ class App extends React.Component {
       flow,
       elements,
       onPurgeVersions: this.onPurgeVersions,
+      onWhereUsed: this.onWhereUsed,
       onToggleDescription: this.onToggleDescription,
       handleMouseDown: e => this.handleMouseDown(e),
       shouldIgnoreClick: e => this.shouldIgnoreClick(e)
@@ -2438,6 +3382,25 @@ class App extends React.Component {
         onConfirm: this.confirmPurge,
         onCancel: this.cancelPurge,
         onHistorySizeChange: this.onPurgeHistorySizeChange
+      }),
+      h(WhereUsedModal, {
+        isOpen: this.state.showWhereUsedModal,
+        onClose: this.onWhereUsedClose,
+        onSearch: this.onWhereUsedSearch,
+        referencingFlows: this.state.referencingFlows,
+        isLoading: this.state.whereUsedLoading,
+        error: this.state.whereUsedError,
+        sfHost,
+        progress: this.state.whereUsedProgress,
+        hasSearched: this.state.whereUsedHasSearched,
+        filterMode: this.state.whereUsedFilterMode,
+        onFilterModeChange: this.onWhereUsedFilterModeChange,
+        scanMode: this.state.whereUsedScanMode,
+        onScanModeChange: this.onWhereUsedScanModeChange,
+        versionScope: this.state.whereUsedVersionScope,
+        onVersionScopeChange: this.onWhereUsedVersionScopeChange,
+        statusFilters: this.state.whereUsedStatusFilters,
+        onStatusFilterToggle: this.onWhereUsedStatusFilterToggle
       }),
       h("div", {className: "sr-only", "aria-live": "polite", "aria-atomic": "true", id: "sr-announcements"})
     );
