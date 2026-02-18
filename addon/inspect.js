@@ -1887,9 +1887,6 @@ class App extends React.Component {
                       h("span", {className: "sfir-column-control-label"}, "Field columns:"),
                       h(ButtonMenu, {
                         label: null,
-                        iconName: "utility:chevrondown",
-                        variant: "border",
-                        iconSize: "small",
                         menuAlignment: "right",
                         alternativeText: "Select field columns",
                         onSelect: this.onFieldColumnSelect,
@@ -1909,9 +1906,6 @@ class App extends React.Component {
                       h("span", {className: "sfir-column-control-label"}, "Relationship columns:"),
                       h(ButtonMenu, {
                         label: null,
-                        iconName: "utility:chevrondown",
-                        variant: "border",
-                        iconSize: "small",
                         menuAlignment: "right",
                         alternativeText: "Select relationship columns",
                         onSelect: this.onRelationshipColumnSelect,
