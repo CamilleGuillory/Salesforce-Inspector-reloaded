@@ -2,6 +2,7 @@
 
 ## Version 2.1
 
+- `Data Export` Introduced option toggle for Date/Time display formats (ISO 8601, American, European, Asian) and optimized formatting logic (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Popup` Add filter icon and menu on User tab search input [discussion #1147](https://github.com/tprouvot/Salesforce-Inspector-reloaded/discussions/1147)
 - `Event Monitor` Allow users to generate, publish and save Platform Events based on their definition
 
@@ -18,7 +19,6 @@
 - `Accessibility` Improve screen reader support: fix AlertBanner silent announcements, convert inspector button and tooltip trigger to semantic elements, add popup iframe title issues [#1107](https://github.com/tprouvot/Salesforce-Inspector-reloaded/issues/1107) & [#1108](https://github.com/tprouvot/Salesforce-Inspector-reloaded/issues/1108) (contribution by [akj](https://github.com/akj))
 - `Dependencies Explorer` (contribution by [Georgi Dobrishinov](https://github.com/dobrishinov))
 - `Flow Scanner` Extract Flow Scanner rules logic into shared module (fixes the Flow Scanner import flash on the Options page) contribution by [Camille Guillory](https://github.com/CamilleGuillory))
-- `Data Export` Introduced option toggle for Date/Time display formats (ISO 8601, American, European, Asian) and optimized formatting logic (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - Introduce SObjectList cache to prevent request to Salesforce requests to be sent each time the popup opens [issue #437](https://github.com/tprouvot/Salesforce-Inspector-reloaded/issues/437)
 - `Popup` Support record ID detection in Lightning Setup URLs with address parameter [feature 1099](https://github.com/tprouvot/Salesforce-Inspector-reloaded/issues/1099)
 - `Data Export` Fix Incorrect SOSL Query stamping when selected from Saved Queries [issue #1075](https://github.com/tprouvot/Salesforce-Inspector-reloaded/issues/1075) (contribution by [Divyanshu Bist](https://github.com/DivyanshuBist)
