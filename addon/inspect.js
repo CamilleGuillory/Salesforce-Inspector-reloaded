@@ -1,6 +1,6 @@
 /* global React ReactDOM */
 import {sfConn, apiVersion} from "./inspector.js";
-import {copyToClipboard, downloadCsvFile} from "./utils.js";
+import {copyToClipboard, downloadCsvFile, applyProductionStyling} from "./utils.js";
 /* global initButton */
 import {getObjectSetupLinks, getFieldSetupLinks} from "./setup-links.js";
 import {PageHeader} from "./components/PageHeader.js";
@@ -49,11 +49,8 @@ class Model {
     this.popupTmpReactElement = undefined;
     this.popupReactElement = undefined;
     this.recordName;
-    let trialExpDate = localStorage.getItem(sfHost + "_trialExpirationDate");
-    if (localStorage.getItem(sfHost + "_isSandbox") != "true" && (!trialExpDate || trialExpDate === "null")) {
-      //change background color for production
-      document.body.classList.add("sfir-prod");
-    }
+    this.lookupNames = {}; // Maps lookup field name -> display name (e.g. AccountId -> "Acme Corp")
+    applyProductionStyling(sfHost);
 
     // Initialize user info model - handles all user-related properties
     // Wrap spinFor to match the expected signature (spinFor in inspect.js takes actionName as first param)
@@ -2654,9 +2651,7 @@ class DetailsBox extends React.Component {
       }
       return false;
     });
-
   });
-
 }
 
 {
