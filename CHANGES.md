@@ -2,13 +2,13 @@
 
 ## Version 2.1
 
+- `Flow Scanner` Resolve FlowDefinition ID (300xxx) when only that ID is available, using the active version (or latest as fallback). Support opening Flow Scanner from FlowRecord pages (`/lightning/r/FlowRecord/...`). Display the analyzed flow version number in the Flow Information card. Fix `Flow Compare` button in the popup so it works from FlowRecord and FlowDefinition pages (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Popup` Add filter icon and menu on User tab search input [discussion #1147](https://github.com/tprouvot/Salesforce-Inspector-reloaded/discussions/1147)
 - `Event Monitor` Allow users to generate, publish and save Platform Events based on their definition
 
 ## Version 2.0
 
 - `Data Export` Fix unrecognized Salesforce Ids [issue #984](https://github.com/tprouvot/Salesforce-Inspector-reloaded/issues/984)
-- `Flow Scanner` Resolve FlowDefinition ID (300xxx) when only that ID is available, using the active version (or latest as fallback). Support opening Flow Scanner from FlowRecord pages (`/lightning/r/FlowRecord/...`). Display the analyzed flow version number in the Flow Information card (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Data Import` Expose metadata updates through Tooling API (ie Bulk Deactivate Flows) [feature 1125](https://github.com/tprouvot/Salesforce-Inspector-reloaded/issues/1125)
 - Fix Lightning Navigation from Analytics / Tableau [issue #1121](https://github.com/tprouvot/Salesforce-Inspector-reloaded/issues/1121)
 - `Popup` review cache management in "Preload SObjects before popup opens". If enabled, refresh of SObject definition is done every "SObjects List Cache" hours, else done in background when the popup is expanded
