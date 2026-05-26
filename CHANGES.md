@@ -6,6 +6,7 @@
 - `Data Export` Introduced option toggle for Date/Time display formats (ISO 8601, American, European, Asian) and optimized formatting logic (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Popup` Make popup header clickable to close it and add synchronized hover effects with the extension button (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Data Export` Enhance Query History and Saved Queries: add delete button for individual entries, add visual badges for saved query labels and Tooling API indicators, save queries to history immediately when executing (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
+- `User Experience` Introduce shared TabBar and ButtonMenu components for consistent tab and menu UI across Popup, Options, Data Export, and Inspect pages (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Popup` Add filter icon and menu on User tab search input [discussion #1147](https://github.com/tprouvot/Salesforce-Inspector-reloaded/discussions/1147)
 - `Event Monitor` Allow users to generate, publish and save Platform Events based on their definition
 
