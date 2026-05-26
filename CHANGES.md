@@ -7,6 +7,7 @@
 - `Popup` Make popup header clickable to close it and add synchronized hover effects with the extension button (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Data Export` Enhance Query History and Saved Queries: add delete button for individual entries, add visual badges for saved query labels and Tooling API indicators, save queries to history immediately when executing (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `User Experience` Introduce shared TabBar and ButtonMenu components for consistent tab and menu UI across Popup, Options, Data Export, and Inspect pages (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
+- `Flow Scanner` Resolve FlowDefinition ID (300xxx) when only that ID is available, using the active version (or latest as fallback). Support opening Flow Scanner from FlowRecord pages (`/lightning/r/FlowRecord/...`). Display the analyzed flow version number in the Flow Information card. Fix `Flow Compare` button in the popup so it works from FlowRecord and FlowDefinition pages (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Popup` Add filter icon and menu on User tab search input [discussion #1147](https://github.com/tprouvot/Salesforce-Inspector-reloaded/discussions/1147)
 - `Event Monitor` Allow users to generate, publish and save Platform Events based on their definition
 
