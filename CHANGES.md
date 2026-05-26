@@ -3,6 +3,7 @@
 ## Version 2.1
 
 - `Show All Data` Centralize action controls and styles in `AllDataSelection` with reusable `actionWrapper`, `actionLink`, `actionButton` helpers and a dedicated `sfir-all-data-actions` container to fix alignment and reduce duplicated JSX (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
+- `Data Export` Introduced option toggle for Date/Time display formats (ISO 8601, American, European, Asian) and optimized formatting logic (contribution by [Camille Guillory](https://github.com/CamilleGuillory))
 - `Popup` Add filter icon and menu on User tab search input [discussion #1147](https://github.com/tprouvot/Salesforce-Inspector-reloaded/discussions/1147)
 - `Event Monitor` Allow users to generate, publish and save Platform Events based on their definition
 
