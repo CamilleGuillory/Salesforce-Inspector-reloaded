@@ -983,7 +983,6 @@ class AllDataBox extends React.PureComponent {
       contextPath: null,
       contextSobject: null,
     };
-    this.onAspectClick = this.onAspectClick.bind(this);
     this.onClearSobjectsCache = this.onClearSobjectsCache.bind(this);
     this.parseContextUrl = this.ensureKnownBrowserContext.bind(this);
   }
@@ -1110,12 +1109,6 @@ class AllDataBox extends React.PureComponent {
         console.error("Unable to query user context", err);
       }
     }
-  }
-
-  onAspectClick(e) {
-    this.setState({
-      activeSearchAspect: e.currentTarget.dataset.aspect,
-    });
   }
 
   loadSobjects() {
