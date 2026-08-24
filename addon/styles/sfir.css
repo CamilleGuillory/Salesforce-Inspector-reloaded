@@ -311,3 +311,15 @@ a.download-salesforce {
   max-height: 20rem;
   overflow-y: auto;
 }
+
+/* MultiCheckboxButtonGroup checkbox label with an inline tooltip icon (Options) */
+.sfir-checkbox-faux-with-tooltip {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.sfir-checkbox-tooltip-wrapper {
+  margin-left: 4px;
+  display: inline-flex;
+}
